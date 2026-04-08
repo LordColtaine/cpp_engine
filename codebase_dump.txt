@@ -1,0 +1,1974 @@
+============================================================
+FILE: ./CMakeLists.txt
+============================================================
+
+cmake_minimum_required(VERSION 3.10)
+project(Engine CXX)
+set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# --- RAYLIB ---
+include(FetchContent)
+FetchContent_Declare(
+    raylib
+    GIT_REPOSITORY https://github.com/raysan5/raylib.git
+    GIT_TAG 5.0
+)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(raylib)
+
+# --- 1. ENGINE (100% Reusable) ---
+set(ENGINE_SOURCES
+    engine/src/memory/memorypool.cpp
+    engine/src/memory/binnedallocator.cpp
+    engine/src/core/world.cpp
+    engine/src/core/threadpool.cpp
+    engine/src/core/spatialgrid.cpp
+    
+    engine/include/memory/memorypool.h
+    engine/include/memory/binnedallocator.h
+    engine/include/core/gameobject.h
+    engine/include/core/world.h
+    engine/include/core/threadpool.h
+    engine/include/core/spatialgrid.h
+)
+
+add_library(core_engine STATIC ${ENGINE_SOURCES})
+target_include_directories(core_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/engine/include)
+
+# --- 2. GAME: ANTS ---
+set(GAME_ANTS_SOURCES
+    games/ants/src/main.cpp
+    games/ants/src/ant.cpp
+    games/ants/src/pheromonegrid.cpp
+    
+    games/ants/include/ant.h
+    games/ants/include/pheromonegrid.h
+)
+
+add_executable(game_ants ${GAME_ANTS_SOURCES})
+target_include_directories(game_ants PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/games/ants/include)
+target_link_libraries(game_ants PRIVATE core_engine raylib)
+
+# --- CLANG FORMAT ---
+find_program(CLANG_FORMAT_EXE clang-format)
+if(CLANG_FORMAT_EXE)
+    add_custom_target(
+        FormatCode
+        COMMAND ${CLANG_FORMAT_EXE} -i -style=file ${ENGINE_SOURCES} ${GAME_ANTS_SOURCES}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running clang-format on all source files..."
+    )
+    add_dependencies(core_engine FormatCode)
+endif()
+
+
+============================================================
+FILE: ./tests/main.cpp
+============================================================
+
+#include "object/ant.h"
+#include "raylib.h"
+#include "world/world.h"
+#include <algorithm> // For std::min
+#include <iostream>
+
+// --- ENGINE CONSTANTS ---
+const double TICK_RATE = 60.0;
+const double FIXED_DT = 1.0 / TICK_RATE;
+
+// --- GAME STATES ---
+enum class GameState { Loading, Playing };
+
+int main() {
+    // 1. Tell Raylib to launch in Borderless Fullscreen mode
+    SetConfigFlags(FLAG_FULLSCREEN_MODE);
+
+    // 2. Passing 0, 0 tells Raylib to auto-detect the monitor's native resolution
+    InitWindow(0, 0, "Custom C++ RTS Engine");
+    SetTargetFPS(144);
+
+    // 3. Grab the actual dimensions that Raylib detected
+    int screenWidth = GetScreenWidth();
+    int screenHeight = GetScreenHeight();
+
+    // Calculate the mathematical center of your monitor
+    float centerX = static_cast<float>(screenWidth) / 2.0f;
+    float centerY = static_cast<float>(screenHeight) / 2.0f;
+
+    // Initialize our World with the new dimensions
+    World *world = new World();
+    world->Init(screenWidth, screenHeight);
+
+    // Set the Nest in the exact center of your screen
+    world->GetGrid()->SetNest(centerX, centerY, 30.0f);
+
+    // --- STATE & LOADING VARIABLES ---
+    GameState currentState = GameState::Loading;
+    const int totalAntsToSpawn = 1000; // Up to you!
+    int antsSpawned = 0;
+    const int spawnPerFrame = 50;
+
+    double previousTime = GetTime();
+    double accumulator = 0.0;
+
+    while (!WindowShouldClose()) {
+        if (currentState == GameState::Loading) {
+
+            int batchSize = std::min(spawnPerFrame, totalAntsToSpawn - antsSpawned);
+            for (int i = 0; i < batchSize; i++) {
+                // Spawn ants at the new dynamic center!
+                world->NewGameObject<Ant>(centerX, centerY, world->GetGrid());
+            }
+            antsSpawned += batchSize;
+
+            // 2. Check if we are done loading
+            if (antsSpawned >= totalAntsToSpawn) {
+                currentState = GameState::Playing;
+
+                // CRITICAL FIX: Reset the clock!
+                // This prevents the fixed timestep from trying to "catch up"
+                // on all the time spent rendering the loading screen.
+                previousTime = GetTime();
+                accumulator = 0.0;
+            }
+
+            // 3. Draw the Loading Screen
+            BeginDrawing();
+            ClearBackground(DARKGRAY);
+
+            // Grab the exact center of the screen
+            int cx = GetScreenWidth() / 2;
+            int cy = GetScreenHeight() / 2;
+
+            // --- PERFECTLY CENTERED TITLE ---
+            const char *titleText = "SPAWNING THE SWARM...";
+            int titleWidth = MeasureText(titleText, 20);
+            DrawText(titleText, cx - (titleWidth / 2), cy - 60, 20, RAYWHITE);
+
+            // --- CENTERED LOADING BAR ---
+            int barWidth = 400;
+            int barHeight = 20;
+            int barX = cx - (barWidth / 2);
+            int barY = cy - (barHeight / 2);
+
+            float progress = static_cast<float>(antsSpawned) / totalAntsToSpawn;
+
+            DrawRectangle(barX, barY, barWidth, barHeight, BLACK);
+            DrawRectangle(barX, barY, static_cast<int>(barWidth * progress), barHeight, LIME);
+
+            // --- PERFECTLY CENTERED PROGRESS NUMBERS ---
+            const char *progressText = TextFormat("%d / %d", antsSpawned, totalAntsToSpawn);
+            int progressWidth = MeasureText(progressText, 20);
+            DrawText(progressText, cx - (progressWidth / 2), barY + 35, 20, LIGHTGRAY);
+
+            EndDrawing();
+        }
+        // ==========================================
+        // STATE 2: PLAYING
+        // ==========================================
+        else if (currentState == GameState::Playing) {
+
+            // --- TIME MATH ---
+            double currentTime = GetTime();
+            double frameTime = currentTime - previousTime;
+            previousTime = currentTime;
+
+            if (frameTime > 0.25) {
+                frameTime = 0.25;
+            }
+            accumulator += frameTime;
+
+            // --- INPUT HANDLING ---
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                float mouseX = static_cast<float>(GetMouseX());
+                float mouseY = static_cast<float>(GetMouseY());
+
+                // Spawn a green food circle with a radius of 20 pixels
+                world->GetGrid()->SpawnFood(mouseX, mouseY, 20.0f);
+
+                std::cout << "Food dropped at: " << mouseX << ", " << mouseY << std::endl;
+            }
+            if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                float mouseX = static_cast<float>(GetMouseX());
+                float mouseY = static_cast<float>(GetMouseY());
+
+                // Draw a wall with a 15-pixel radius brush
+                world->GetGrid()->SpawnObstacle(mouseX, mouseY, 15.0f);
+            }
+
+            // --- GAME LOGIC (Fixed Timestep) ---
+            while (accumulator >= FIXED_DT) {
+                world->Update(FIXED_DT);
+                accumulator -= FIXED_DT;
+            }
+
+            // --- RENDERING ---
+            BeginDrawing();
+            ClearBackground(RAYWHITE);
+
+            // Draw everything
+            world->Draw();
+
+            DrawFPS(10, 10);
+            EndDrawing();
+        }
+    }
+
+    // --- CLEANUP ---
+    CloseWindow();
+    delete world;
+    return 0;
+}
+
+
+============================================================
+FILE: ./games/ants/src/pheromonegrid.cpp
+============================================================
+
+#include "pheromonegrid.h"
+
+#include <algorithm>
+#include <iostream>
+#include <thread>
+#include <vector>
+
+namespace
+{
+    constexpr float HOME_EVAP_RATE = 0.1f;
+    constexpr float FOOD_EVAP_RATE = 0.02f;
+    constexpr float RALLY_EVAP_RATE = 0.2f;
+
+    constexpr float SELF_BLUR_FACTOR = 0.6f;
+    constexpr float ADJ_BLUR_FACTOR = 0.1f;
+
+    constexpr float VISUAL_BOOST_FOOD = 2.0f;
+    constexpr float VISUAL_BOOST_HOME = 1.5f;
+    constexpr float VISUAL_BOOST_RALLY = 1.5f;
+
+    constexpr float MAX_SCENT_VALUE = 255.f;
+    constexpr float RALLY_RED_RATIO = 0.66f;
+    constexpr float MIN_ALPHA = 0.005f;
+
+    constexpr float FOOD_MIN_RAD = 2.f;
+} // namespace
+
+PheromoneGrid::PheromoneGrid(int screenWidth, int screenHeight, int cellSize) : m_CellSize(cellSize)
+{
+    m_Cols = screenWidth / m_CellSize;
+    m_Rows = screenHeight / m_CellSize;
+    m_Grid.resize(m_Cols * m_Rows);
+    m_OldGrid.resize(m_Cols * m_Rows);
+
+    m_PixelData = new Color[m_Cols * m_Rows];
+    for (int i = 0; i < m_Cols * m_Rows; ++i)
+    {
+        m_PixelData[i] = BLANK; // BLANK is Raylib's 100% transparent color
+    }
+
+    Image img = GenImageColor(m_Cols, m_Rows, BLANK);
+    m_GridTexture = LoadTextureFromImage(img);
+    UnloadImage(img);
+}
+
+void PheromoneGrid::Cleanup()
+{
+    delete[] m_PixelData;
+    UnloadTexture(m_GridTexture);
+}
+
+int PheromoneGrid::GetIndex(float worldX, float worldY) const
+{
+    int col = static_cast<int>(worldX) / m_CellSize;
+    int row = static_cast<int>(worldY) / m_CellSize;
+
+    col = std::clamp(col, 0, m_Cols - 1);
+    row = std::clamp(row, 0, m_Rows - 1);
+
+    return row * m_Cols + col;
+}
+
+void PheromoneGrid::PrepareUpdate() { m_OldGrid = m_Grid; }
+
+void PheromoneGrid::UpdateChunk(double dt, int startY, int endY)
+{
+    const float homeEvap = 1.0f - (HOME_EVAP_RATE * static_cast<float>(dt));
+    const float foodEvap = 1.0f - (FOOD_EVAP_RATE * static_cast<float>(dt));
+    const float rallyEvap = 1.0f - (RALLY_EVAP_RATE * static_cast<float>(dt));
+    const float flatDecay = 2.0f * static_cast<float>(dt);
+
+    startY = std::max(1, startY);
+    endY = std::min(m_Rows - 1, endY);
+
+    for (int y = startY; y < endY; ++y)
+    {
+        for (int x = 1; x < m_Cols - 1; ++x)
+        {
+            const int i = y * m_Cols + x;
+            if (m_OldGrid[i].m_IsObstacle)
+            {
+                m_Grid[i].m_HomeScent = 0.0f;
+                m_Grid[i].m_FoodScent = 0.0f;
+                m_Grid[i].m_RallyScent = 0.0f;
+                m_PixelData[i] = DARKGRAY;
+                continue;
+            }
+
+            // Applying a "blur" effect so that the scent looks like it spreads around.
+            const float blurredHome =
+                m_OldGrid[i].m_HomeScent * SELF_BLUR_FACTOR + m_OldGrid[i - 1].m_HomeScent * ADJ_BLUR_FACTOR +
+                m_OldGrid[i + 1].m_HomeScent * ADJ_BLUR_FACTOR + m_OldGrid[i - m_Cols].m_HomeScent * ADJ_BLUR_FACTOR +
+                m_OldGrid[i + m_Cols].m_HomeScent * ADJ_BLUR_FACTOR;
+
+            const float blurredFood =
+                m_OldGrid[i].m_FoodScent * SELF_BLUR_FACTOR + m_OldGrid[i - 1].m_FoodScent * ADJ_BLUR_FACTOR +
+                m_OldGrid[i + 1].m_FoodScent * ADJ_BLUR_FACTOR + m_OldGrid[i - m_Cols].m_FoodScent * ADJ_BLUR_FACTOR +
+                m_OldGrid[i + m_Cols].m_FoodScent * ADJ_BLUR_FACTOR;
+
+            const float blurredRally =
+                m_OldGrid[i].m_RallyScent * SELF_BLUR_FACTOR + m_OldGrid[i - 1].m_RallyScent * ADJ_BLUR_FACTOR +
+                m_OldGrid[i + 1].m_RallyScent * ADJ_BLUR_FACTOR + m_OldGrid[i - m_Cols].m_RallyScent * ADJ_BLUR_FACTOR +
+                m_OldGrid[i + m_Cols].m_RallyScent * ADJ_BLUR_FACTOR;
+
+            m_Grid[i].m_HomeScent = (blurredHome * homeEvap) - flatDecay;
+            m_Grid[i].m_FoodScent = (blurredFood * foodEvap) - flatDecay;
+            m_Grid[i].m_RallyScent = (blurredRally * rallyEvap) - flatDecay;
+
+            if (m_Grid[i].m_HomeScent < 0.01f)
+                m_Grid[i].m_HomeScent = 0.0f;
+            if (m_Grid[i].m_FoodScent < 0.01f)
+                m_Grid[i].m_FoodScent = 0.0f;
+            if (m_Grid[i].m_RallyScent < 0.01f)
+                m_Grid[i].m_RallyScent = 0.0f;
+
+            const float food = std::min(1.0f, (m_Grid[i].m_FoodScent * VISUAL_BOOST_FOOD) / MAX_SCENT_VALUE);
+            const float home = std::min(1.0f, (m_Grid[i].m_HomeScent * VISUAL_BOOST_HOME) / MAX_SCENT_VALUE);
+            const float rally = std::min(1.0f, (m_Grid[i].m_RallyScent * VISUAL_BOOST_RALLY) / MAX_SCENT_VALUE);
+
+            // Food pushes pure Red. Rally (Purple) pushes Red and Blue. Home pushes pure Blue.
+            const float r = std::min(1.0f, food + (rally * RALLY_RED_RATIO));
+            const float g = 0.0f;
+            const float b = std::min(1.0f, home + rally);
+
+            // alpha is equal to whichever scent is the strongest
+            const float a = std::max(food, std::max(home, rally));
+
+            if (a > MIN_ALPHA)
+            {
+                m_PixelData[i] = {
+                    static_cast<unsigned char>(r * MAX_SCENT_VALUE), static_cast<unsigned char>(g * MAX_SCENT_VALUE),
+                    static_cast<unsigned char>(b * MAX_SCENT_VALUE), static_cast<unsigned char>(a * MAX_SCENT_VALUE)};
+            }
+            else
+            {
+                m_PixelData[i] = BLANK;
+            }
+        }
+    }
+}
+
+void PheromoneGrid::AddHomePheromone(float worldX, float worldY, float amount)
+{
+    const int index = GetIndex(worldX, worldY);
+    m_Grid[index].m_HomeScent += amount;
+
+    // Add to nest scent so it gets stronger with more ants.
+    if (m_Grid[index].m_HomeScent > MAX_SCENT_VALUE)
+    {
+        m_Grid[index].m_HomeScent = MAX_SCENT_VALUE;
+    }
+}
+
+void PheromoneGrid::AddFoodPheromone(float worldX, float worldY, float amount)
+{
+    const int index = GetIndex(worldX, worldY);
+    // Override instead of adding to prevent stronger scent near nest.
+    m_Grid[index].m_FoodScent = std::max(m_Grid[index].m_FoodScent, amount);
+}
+
+float PheromoneGrid::GetHomePheromone(float worldX, float worldY) const
+{
+    return m_Grid[GetIndex(worldX, worldY)].m_HomeScent;
+}
+
+float PheromoneGrid::GetFoodPheromone(float worldX, float worldY) const
+{
+    return m_Grid[GetIndex(worldX, worldY)].m_FoodScent;
+}
+
+void PheromoneGrid::SpawnFood(float x, float y, float radius) { m_FoodSources.push_back({x, y, radius}); }
+
+bool PheromoneGrid::CheckFoodCollision(float antX, float antY) const
+{
+    for (const auto& food : m_FoodSources)
+    {
+        const float dx = antX - food.m_X;
+        const float dy = antY - food.m_Y;
+        const float distanceSquared = dx * dx + dy * dy;
+
+        if (distanceSquared <= (food.m_Radius * food.m_Radius))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool PheromoneGrid::TryHarvestFood(float antX, float antY, float amount)
+{
+    for (auto it = m_FoodSources.begin(); it != m_FoodSources.end(); ++it)
+    {
+        const float dx = antX - it->m_X;
+        const float dy = antY - it->m_Y;
+
+        if ((dx * dx + dy * dy) <= (it->m_Radius * it->m_Radius))
+        {
+            it->m_Radius -= amount;
+            if (it->m_Radius <= MIN_ALPHA)
+            {
+                m_FoodSources.erase(it);
+            }
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void PheromoneGrid::DrawDebug() const
+{
+    UpdateTexture(m_GridTexture, m_PixelData);
+    DrawTextureEx(m_GridTexture, {0.0f, 0.0f}, 0.0f, static_cast<float>(m_CellSize), WHITE);
+    DrawCircle(static_cast<int>(m_Nest.m_X), static_cast<int>(m_Nest.m_Y), m_Nest.m_Radius, DARKBROWN);
+    for (const auto& food : m_FoodSources)
+    {
+        DrawCircle(static_cast<int>(food.m_X), static_cast<int>(food.m_Y), food.m_Radius, GREEN);
+    }
+}
+
+void PheromoneGrid::SetNest(float x, float y, float radius) { m_Nest = {x, y, radius}; }
+
+bool PheromoneGrid::CheckNestCollision(float antX, float antY) const
+{
+    const float dx = antX - m_Nest.m_X;
+    const float dy = antY - m_Nest.m_Y;
+    const float distanceSquared = dx * dx + dy * dy;
+
+    return distanceSquared <= (m_Nest.m_Radius * m_Nest.m_Radius);
+}
+
+void PheromoneGrid::SpawnObstacle(float x, float y, float radius)
+{
+    const int gridX = static_cast<int>(x) / m_CellSize;
+    const int gridY = static_cast<int>(y) / m_CellSize;
+    const int gridRadius = static_cast<int>(radius) / m_CellSize;
+
+    for (int dy = -gridRadius; dy <= gridRadius; ++dy)
+    {
+        for (int dx = -gridRadius; dx <= gridRadius; ++dx)
+        {
+            if (dx * dx + dy * dy <= gridRadius * gridRadius)
+            {
+                int cx = gridX + dx;
+                int cy = gridY + dy;
+
+                if (cx >= 0 && cx < m_Cols && cy >= 0 && cy < m_Rows)
+                {
+                    m_Grid[cy * m_Cols + cx].m_IsObstacle = true;
+                    m_Grid[cy * m_Cols + cx].m_HomeScent = 0.0f;
+                    m_Grid[cy * m_Cols + cx].m_FoodScent = 0.0f;
+                }
+            }
+        }
+    }
+}
+
+bool PheromoneGrid::IsObstacle(float x, float y) const
+{
+    const int gridX = static_cast<int>(x) / m_CellSize;
+    const int gridY = static_cast<int>(y) / m_CellSize;
+
+    if (gridX >= 0 && gridX < m_Cols && gridY >= 0 && gridY < m_Rows)
+    {
+        return m_Grid[gridY * m_Cols + gridX].m_IsObstacle;
+    }
+
+    return true;
+}
+
+void PheromoneGrid::AddRallyPheromone(float worldX, float worldY, float radius, float amount)
+{
+    const int gridX = static_cast<int>(worldX) / m_CellSize;
+    const int gridY = static_cast<int>(worldY) / m_CellSize;
+    const int gridRadius = static_cast<int>(radius) / m_CellSize;
+
+    for (int dy = -gridRadius; dy <= gridRadius; ++dy)
+    {
+        for (int dx = -gridRadius; dx <= gridRadius; ++dx)
+        {
+            if (dx * dx + dy * dy <= gridRadius * gridRadius)
+            {
+                const int cx = gridX + dx;
+                const int cy = gridY + dy;
+
+                if (cx >= 0 && cx < m_Cols && cy >= 0 && cy < m_Rows)
+                {
+                    const int index = cy * m_Cols + cx;
+                    m_Grid[index].m_RallyScent += amount;
+                    if (m_Grid[index].m_RallyScent > MAX_SCENT_VALUE)
+                    {
+                        m_Grid[index].m_RallyScent = MAX_SCENT_VALUE;
+                    }
+                }
+            }
+        }
+    }
+}
+
+float PheromoneGrid::GetRallyPheromone(float worldX, float worldY) const
+{
+    return m_Grid[GetIndex(worldX, worldY)].m_RallyScent;
+}
+
+
+============================================================
+FILE: ./games/ants/src/ant.cpp
+============================================================
+
+#include "ant.h"
+
+#include <cmath>
+#include <cstdlib>
+
+// ==========================================
+// CONFIGURATION CONSTANTS
+// ==========================================
+namespace
+{
+    // Ant Physical Traits
+    constexpr int WORKER_ANT_SIZE = 2;
+    constexpr int SOLDIER_ANT_SIZE = 4;
+    constexpr float PATROL_RADIUS = 400.0f;
+    constexpr float DEFAULT_SENSOR_DISTANCE = 15.0f;
+    constexpr float DEFAULT_SENSOR_ANGLE = 0.785f; // 45 degrees in radians
+
+    // Scent & Payload
+    constexpr float MAX_SCENT_PAYLOAD = 255.0f;
+    constexpr float MIN_SCENT_PAYLOAD = 2.0f;
+    constexpr float HOME_SCENT_DROP_RATE = 50.0f;
+    constexpr float PAYLOAD_DRAIN_RATE = 15.0f;
+
+    // Harvesting
+    constexpr float HARVEST_RATE = 1.5f;
+    constexpr float HARVEST_TIME_FULL = 1.0f;
+    constexpr float HARVEST_TIME_PARTIAL = 0.25f;
+
+    // Movement & Steering
+    constexpr float BASE_TURN_SPEED = 4.0f;
+    constexpr float RALLY_TURN_MULTIPLIER = 1.5f;
+    constexpr float WALL_TURN_MULTIPLIER = 2.0f;
+    constexpr float WOBBLE_STRENGTH = 0.2f;
+    constexpr float WORLD_BOUNDARY_MARGIN = 5.0f;
+
+    // Math & Sensors
+    constexpr float OBSTACLE_PENALTY = -9999.0f;
+    constexpr float WALL_AVOID_THRESHOLD = -1000.0f;
+    constexpr float DEG_TO_RAD = 3.14159f / 180.0f;
+    constexpr float COS_45 = 0.707106f;
+    constexpr float SIN_45 = 0.707106f;
+
+    // Random Chances (out of 100)
+    constexpr int SOLDIER_WANDER_CHANCE = 10;
+    constexpr int WANDER_TWITCH_CHANCE = 5;
+    constexpr int RETURN_TWITCH_CHANCE = 2;
+
+    // Generates a random float between - 1.0f and 1.0f
+    inline float GetRandomSymmetric() { return (rand() % 100 / 50.0f) - 1.0f; }
+} // namespace
+
+// ==========================================
+// ANT IMPLEMENTATION
+// ==========================================
+
+Ant::Ant(float startX, float startY, PheromoneGrid* grid, Color color, float speed)
+    : m_X(startX), m_Y(startY), m_Speed(speed), m_CurrentState(AntState::Wandering), m_Color(color), m_Grid(grid),
+      m_HarvestTimer(0.0f), m_SensorDistance(DEFAULT_SENSOR_DISTANCE), m_SensorAngle(DEFAULT_SENSOR_ANGLE),
+      m_FoodScentStrength(0.0f)
+{
+    m_Dx = GetRandomSymmetric();
+    m_Dy = GetRandomSymmetric();
+    NormalizeDirection();
+}
+
+void Ant::Update(double dt)
+{
+    switch (m_CurrentState)
+    {
+    case AntState::Wandering:
+    {
+        if (m_Grid != nullptr)
+        {
+            HandleWanderingState(dt);
+            MoveAndBounce(dt);
+        }
+        break;
+    }
+
+    case AntState::ReturningToNest:
+    {
+        if (m_Grid != nullptr)
+        {
+            HandleReturningState(dt);
+            MoveAndBounce(dt);
+        }
+        break;
+    }
+
+    case AntState::FoundFood:
+    {
+        if (m_Grid != nullptr)
+        {
+            const bool gotBite = m_Grid->TryHarvestFood(m_X, m_Y, HARVEST_RATE * static_cast<float>(dt));
+
+            if (gotBite)
+            {
+                m_HarvestTimer += dt;
+                if (m_HarvestTimer >= HARVEST_TIME_FULL)
+                {
+                    m_CurrentState = AntState::ReturningToNest;
+                    m_Color = RED;
+                    m_FoodScentStrength = MAX_SCENT_PAYLOAD;
+                }
+            }
+            else
+            {
+                if (m_HarvestTimer > HARVEST_TIME_PARTIAL)
+                {
+                    m_CurrentState = AntState::ReturningToNest;
+                    m_FoodScentStrength = MAX_SCENT_PAYLOAD;
+                    m_Color = RED;
+                }
+                else
+                {
+                    m_CurrentState = AntState::Wandering;
+                    m_Color = BLACK;
+
+                    float randomAngle = (rand() % 360) * DEG_TO_RAD;
+                    m_Dx = std::cos(randomAngle);
+                    m_Dy = std::sin(randomAngle);
+                }
+            }
+        }
+    }
+    break;
+    }
+}
+
+void Ant::Draw() const
+{
+    DrawRectangle(static_cast<int>(m_X), static_cast<int>(m_Y), WORKER_ANT_SIZE, WORKER_ANT_SIZE, m_Color);
+}
+
+size_t Ant::GetMemorySize() const { return sizeof(*this); }
+
+void Ant::NormalizeDirection()
+{
+    const float length = std::sqrt(m_Dx * m_Dx + m_Dy * m_Dy);
+    if (length > 0)
+    {
+        m_Dx /= length;
+        m_Dy /= length;
+    }
+}
+
+float Ant::Sense(float sensorX, float sensorY, bool lookingForFood)
+{
+    if (m_Grid->IsObstacle(sensorX, sensorY))
+    {
+        return OBSTACLE_PENALTY;
+    }
+
+    if (lookingForFood)
+    {
+        return m_Grid->GetFoodPheromone(sensorX, sensorY);
+    }
+    else
+    {
+        return m_Grid->GetHomePheromone(sensorX, sensorY);
+    }
+}
+
+float Ant::SenseRally(float sensorX, float sensorY)
+{
+    if (m_Grid->IsObstacle(sensorX, sensorY))
+        return OBSTACLE_PENALTY;
+    return m_Grid->GetRallyPheromone(sensorX, sensorY);
+}
+
+// ==========================================
+// SOLDIER ANT IMPLEMENTATION
+// ==========================================
+
+void SoldierAnt::Update(double dt)
+{
+    if (m_Grid == nullptr)
+    {
+        return;
+    }
+
+    const float dxToNest = m_Grid->GetNestX() - m_X;
+    const float dyToNest = m_Grid->GetNestY() - m_Y;
+    const float distSq = dxToNest * dxToNest + dyToNest * dyToNest;
+
+    if (distSq > PATROL_RADIUS * PATROL_RADIUS)
+    {
+        const float angleToNest = std::atan2(dyToNest, dxToNest);
+        m_Dx = std::cos(angleToNest);
+        m_Dy = std::sin(angleToNest);
+    }
+    else if (rand() % 100 < SOLDIER_WANDER_CHANCE)
+    {
+        m_Dx += GetRandomSymmetric();
+        m_Dy += GetRandomSymmetric();
+        NormalizeDirection();
+    }
+
+    MoveAndBounce(dt);
+}
+
+void SoldierAnt::Draw() const
+{
+    DrawRectangle(static_cast<int>(m_X) - 1, static_cast<int>(m_Y) - 1, SOLDIER_ANT_SIZE, SOLDIER_ANT_SIZE, m_Color);
+}
+
+void Ant::HandleWanderingState(double dt)
+{
+    // Front Sensor Coordinates
+    const float frontX = m_X + m_Dx * m_SensorDistance;
+    const float frontY = m_Y + m_Dy * m_SensorDistance;
+
+    // Left Sensor (Rotate forward vector by -45 degrees)
+    const float leftDx = m_Dx * COS_45 - m_Dy * (-SIN_45);
+    const float leftDy = m_Dx * (-SIN_45) + m_Dy * COS_45;
+    const float leftX = m_X + leftDx * m_SensorDistance;
+    const float leftY = m_Y + leftDy * m_SensorDistance;
+
+    // Right Sensor (Rotate forward vector by +45 degrees)
+    const float rightDx = m_Dx * COS_45 - m_Dy * SIN_45;
+    const float rightDy = m_Dx * SIN_45 + m_Dy * COS_45;
+    const float rightX = m_X + rightDx * m_SensorDistance;
+    const float rightY = m_Y + rightDy * m_SensorDistance;
+
+    const float turnSpeed = BASE_TURN_SPEED * static_cast<float>(dt);
+    float currentAngle = std::atan2(m_Dy, m_Dx);
+
+    // Look for God Scent
+    const float rallyForward = SenseRally(frontX, frontY);
+    const float rallyLeft = SenseRally(leftX, leftY);
+    const float rallyRight = SenseRally(rightX, rightY);
+
+    if (rallyForward > 0.0f || rallyLeft > 0.0f || rallyRight > 0.0f)
+    {
+        if (rallyForward < rallyLeft || rallyForward < rallyRight)
+        {
+            if (rallyLeft > rallyRight)
+            {
+                currentAngle -= turnSpeed * RALLY_TURN_MULTIPLIER;
+            }
+            else
+            {
+                currentAngle += turnSpeed * RALLY_TURN_MULTIPLIER;
+            }
+        }
+    }
+    else
+    {
+        // Look for Food
+        const float foodForward = Sense(frontX, frontY, true);
+        const float foodLeft = Sense(leftX, leftY, true);
+        const float foodRight = Sense(rightX, rightY, true);
+
+        if (foodForward > 0.0f || foodLeft > 0.0f || foodRight > 0.0f)
+        {
+            if (foodForward < foodLeft || foodForward < foodRight)
+            {
+                if (foodLeft > foodRight)
+                {
+                    currentAngle -= turnSpeed;
+                }
+                else
+                {
+                    currentAngle += turnSpeed;
+                }
+            }
+        }
+        else
+        {
+            // Look for Home Scent
+            const float homeForward = Sense(frontX, frontY, false);
+            const float homeLeft = Sense(leftX, leftY, false);
+            const float homeRight = Sense(rightX, rightY, false);
+
+            if (homeForward > homeLeft && homeForward > homeRight)
+            {
+                if (rand() % 2 == 0)
+                {
+                    currentAngle += turnSpeed;
+                }
+                else
+                {
+                    currentAngle -= turnSpeed;
+                }
+            }
+            else if (homeLeft > homeRight)
+            {
+                currentAngle += turnSpeed;
+            }
+            else if (homeRight > homeLeft)
+            {
+                currentAngle -= turnSpeed;
+            }
+        }
+    }
+
+    const float randomWobble = GetRandomSymmetric() * WOBBLE_STRENGTH;
+    currentAngle += randomWobble;
+
+    // Apply steering
+    m_Dx = std::cos(currentAngle);
+    m_Dy = std::sin(currentAngle);
+
+    // --- DROP HOME SCENT & CHECK FOOD COLLISION ---
+    m_Grid->AddHomePheromone(m_X, m_Y, HOME_SCENT_DROP_RATE * static_cast<float>(dt));
+    if (m_Grid->CheckFoodCollision(m_X, m_Y))
+    {
+        m_CurrentState = AntState::FoundFood;
+        m_Color = ORANGE;
+        m_HarvestTimer = 0.0f;
+
+        // Calculate exact angle to the nest so we face home while eating!
+        const float dxToNest = m_Grid->GetNestX() - m_X;
+        const float dyToNest = m_Grid->GetNestY() - m_Y;
+        const float angleToNest = std::atan2(dyToNest, dxToNest);
+
+        m_Dx = std::cos(angleToNest);
+        m_Dy = std::sin(angleToNest);
+    }
+
+    // Twitching and Movement
+    if (rand() % 100 < WANDER_TWITCH_CHANCE)
+    {
+        m_Dx += GetRandomSymmetric();
+        m_Dy += GetRandomSymmetric();
+        NormalizeDirection();
+    }
+}
+
+void Ant::HandleReturningState(double dt)
+{
+    // Front Sensor Coordinates
+    const float frontX = m_X + m_Dx * m_SensorDistance;
+    const float frontY = m_Y + m_Dy * m_SensorDistance;
+
+    // Left Sensor (Rotate forward vector by -45 degrees)
+    const float leftDx = m_Dx * COS_45 - m_Dy * (-SIN_45);
+    const float leftDy = m_Dx * (-SIN_45) + m_Dy * COS_45;
+    const float leftX = m_X + leftDx * m_SensorDistance;
+    const float leftY = m_Y + leftDy * m_SensorDistance;
+
+    // Right Sensor (Rotate forward vector by +45 degrees)
+    const float rightDx = m_Dx * COS_45 - m_Dy * SIN_45;
+    const float rightDy = m_Dx * SIN_45 + m_Dy * COS_45;
+    const float rightX = m_X + rightDx * m_SensorDistance;
+    const float rightY = m_Y + rightDy * m_SensorDistance;
+
+    const float frontWall = Sense(frontX, frontY, false);
+    const float leftWall = Sense(leftX, leftY, false);
+    const float rightWall = Sense(rightX, rightY, false);
+
+    float currentAngle = std::atan2(m_Dy, m_Dx);
+    const float dxToNest = m_Grid->GetNestX() - m_X;
+    const float dyToNest = m_Grid->GetNestY() - m_Y;
+    const float targetAngle = std::atan2(dyToNest, dxToNest);
+
+    const float turnSpeed = BASE_TURN_SPEED * static_cast<float>(dt);
+
+    // Try to avoid walls.
+    if (frontWall < WALL_AVOID_THRESHOLD || leftWall < WALL_AVOID_THRESHOLD || rightWall < WALL_AVOID_THRESHOLD)
+    {
+        if (leftWall > rightWall)
+        {
+            currentAngle -= turnSpeed * WALL_TURN_MULTIPLIER;
+        }
+        else if (rightWall > leftWall)
+        {
+            currentAngle += turnSpeed * WALL_TURN_MULTIPLIER;
+        }
+        else
+        {
+            currentAngle += turnSpeed * WALL_TURN_MULTIPLIER;
+        }
+    }
+    else
+    {
+        float angleDiff = targetAngle - currentAngle;
+        while (angleDiff > M_PI)
+        {
+            angleDiff -= 2.0f * M_PI;
+        }
+        while (angleDiff < -M_PI)
+        {
+            angleDiff += 2.0f * M_PI;
+        }
+
+        if (angleDiff > turnSpeed)
+        {
+            currentAngle += turnSpeed;
+        }
+        else if (angleDiff < -turnSpeed)
+        {
+            currentAngle -= turnSpeed;
+        }
+        else
+        {
+            currentAngle = targetAngle;
+        }
+    }
+
+    m_Dx = std::cos(currentAngle);
+    m_Dy = std::sin(currentAngle);
+
+    // Food pheromone degrades every time it is dropped.
+    m_Grid->AddFoodPheromone(m_X, m_Y, m_FoodScentStrength);
+    m_FoodScentStrength -= PAYLOAD_DRAIN_RATE * static_cast<float>(dt);
+
+    if (m_FoodScentStrength < MIN_SCENT_PAYLOAD)
+    {
+        m_FoodScentStrength = MIN_SCENT_PAYLOAD;
+    }
+
+    if (m_Grid->CheckNestCollision(m_X, m_Y))
+    {
+        m_CurrentState = AntState::Wandering;
+        m_Color = BLACK;
+        m_Dx *= -1.0f;
+        m_Dy *= -1.0f;
+        NormalizeDirection();
+    }
+
+    if (rand() % 100 < RETURN_TWITCH_CHANCE)
+    {
+        m_Dx += GetRandomSymmetric();
+        m_Dy += GetRandomSymmetric();
+        NormalizeDirection();
+    }
+}
+
+void Ant::MoveAndBounce(double dt)
+{
+    const float nextX = m_X + m_Dx * m_Speed * dt;
+    const float nextY = m_Y + m_Dy * m_Speed * dt;
+
+    if (m_Grid->IsObstacle(nextX, nextY))
+    {
+        m_Dx *= -1.0f;
+        m_Dy *= -1.0f;
+
+        m_Dx += GetRandomSymmetric();
+        m_Dy += GetRandomSymmetric();
+        NormalizeDirection();
+    }
+    else
+    {
+        m_X = nextX;
+        m_Y = nextY;
+    }
+
+    const int worldWidth = m_Grid->GetWidth();
+    const int worldHeight = m_Grid->GetHeight();
+
+    if (m_X < WORLD_BOUNDARY_MARGIN)
+    {
+        m_X = WORLD_BOUNDARY_MARGIN;
+        m_Dx *= -1.0f;
+    }
+    if (m_X > worldWidth - WORLD_BOUNDARY_MARGIN)
+    {
+        m_X = worldWidth - WORLD_BOUNDARY_MARGIN;
+        m_Dx *= -1.0f;
+    }
+    if (m_Y < WORLD_BOUNDARY_MARGIN)
+    {
+        m_Y = WORLD_BOUNDARY_MARGIN;
+        m_Dy *= -1.0f;
+    }
+    if (m_Y > worldHeight - WORLD_BOUNDARY_MARGIN)
+    {
+        m_Y = worldHeight - WORLD_BOUNDARY_MARGIN;
+        m_Dy *= -1.0f;
+    }
+}
+
+
+============================================================
+FILE: ./games/ants/src/main.cpp
+============================================================
+
+#include "ant.h"
+#include "core/world.h"
+#include "pheromonegrid.h"
+#include "raylib.h"
+#include <algorithm>
+#include <iostream>
+
+// ==========================================
+// ENGINE CONFIGURATION
+// ==========================================
+namespace
+{
+    // Timing & Framerate
+    constexpr int TARGET_FPS = 144;
+    constexpr double TICK_RATE = 60.0;
+    constexpr double FIXED_DT = 1.0 / TICK_RATE;
+    constexpr double MAX_FRAME_TIME = 0.25;
+
+    // World Dimensions
+    constexpr float WORLD_WIDTH = 5000.0f;
+    constexpr float WORLD_HEIGHT = 5000.0f;
+    constexpr int GRID_CELL_SIZE = 4;
+
+    // Spawning & Entities
+    constexpr int TOTAL_ANTS_TO_SPAWN = 10000;
+    constexpr int ANTS_SPAWN_PER_FRAME = 500;
+    constexpr int SOLDIER_SPAWN_CHANCE = 10; // 10% chance
+    constexpr float NEST_RADIUS = 30.0f;
+
+    // Player Interaction
+    constexpr float CAMERA_ZOOM_SPEED = 0.05f;
+    constexpr float CAMERA_MIN_ZOOM = 0.1f;
+    constexpr float FOOD_SPAWN_RADIUS = 20.0f;
+    constexpr float OBSTACLE_SPAWN_RADIUS = 15.0f;
+    constexpr float RALLY_SPAWN_RADIUS = 5.0f;
+    constexpr float RALLY_INTENSITY = 5000.0f;
+
+    // Multithreading
+    constexpr int THREAD_JOB_COUNT = 4;
+
+    // UI Loading Screen
+    constexpr int UI_BAR_WIDTH = 400;
+    constexpr int UI_BAR_HEIGHT = 20;
+    constexpr int UI_TITLE_OFFSET_Y = 60;
+    constexpr int UI_TITLE_FONT_SIZE = 20;
+} // namespace
+
+enum class GameState
+{
+    Loading,
+    Playing
+};
+
+int main()
+{
+    SetConfigFlags(FLAG_FULLSCREEN_MODE);
+    InitWindow(0, 0, "Ant Swarm Simulation");
+    SetTargetFPS(TARGET_FPS);
+
+    const int screenWidth = GetScreenWidth();
+    const int screenHeight = GetScreenHeight();
+
+    const float monitorCenterX = static_cast<float>(screenWidth) / 2.0f;
+    const float monitorCenterY = static_cast<float>(screenHeight) / 2.0f;
+
+    const float worldCenterX = WORLD_WIDTH / 2.0f;
+    const float worldCenterY = WORLD_HEIGHT / 2.0f;
+
+    World* world = new World();
+    world->Init();
+
+    PheromoneGrid grid(WORLD_WIDTH, WORLD_HEIGHT, GRID_CELL_SIZE);
+    grid.SetNest(worldCenterX, worldCenterY, NEST_RADIUS);
+
+    // --- Initialize the Camera ---
+    Camera2D camera = {0};
+    camera.target = {worldCenterX, worldCenterY};
+    camera.offset = {monitorCenterX, monitorCenterY};
+    camera.rotation = 0.0f;
+    camera.zoom = 1.0f;
+
+    GameState currentState = GameState::Loading;
+    int antsSpawned = 0;
+
+    double previousTime = GetTime();
+    double accumulator = 0.0;
+
+    while (!WindowShouldClose())
+    {
+        // ==========================================
+        // STATE 1: LOADING
+        // ==========================================
+        if (currentState == GameState::Loading)
+        {
+            const int batchSize = std::min(ANTS_SPAWN_PER_FRAME, TOTAL_ANTS_TO_SPAWN - antsSpawned);
+            for (int i = 0; i < batchSize; i++)
+            {
+                if (rand() % 100 < SOLDIER_SPAWN_CHANCE)
+                {
+                    world->NewGameObject<SoldierAnt>(worldCenterX, worldCenterY, &grid);
+                }
+                else
+                {
+                    world->NewGameObject<WorkerAnt>(worldCenterX, worldCenterY, &grid);
+                }
+            }
+            antsSpawned += batchSize;
+
+            if (antsSpawned >= TOTAL_ANTS_TO_SPAWN)
+            {
+                currentState = GameState::Playing;
+                previousTime = GetTime();
+                accumulator = 0.0;
+            }
+
+            BeginDrawing();
+            ClearBackground(DARKGRAY);
+
+            const char* titleText = "SPAWNING THE SWARM...";
+            DrawText(titleText, static_cast<int>(monitorCenterX) - (MeasureText(titleText, UI_TITLE_FONT_SIZE) / 2),
+                     static_cast<int>(monitorCenterY) - UI_TITLE_OFFSET_Y, UI_TITLE_FONT_SIZE, RAYWHITE);
+
+            const float progress = static_cast<float>(antsSpawned) / TOTAL_ANTS_TO_SPAWN;
+            DrawRectangle(static_cast<int>(monitorCenterX) - (UI_BAR_WIDTH / 2),
+                          static_cast<int>(monitorCenterY) - (UI_BAR_HEIGHT / 2), UI_BAR_WIDTH, UI_BAR_HEIGHT, BLACK);
+            DrawRectangle(static_cast<int>(monitorCenterX) - (UI_BAR_WIDTH / 2),
+                          static_cast<int>(monitorCenterY) - (UI_BAR_HEIGHT / 2),
+                          static_cast<int>(UI_BAR_WIDTH * progress), UI_BAR_HEIGHT, LIME);
+            EndDrawing();
+        }
+
+        // ==========================================
+        // STATE 2: PLAYING
+        // ==========================================
+        else if (currentState == GameState::Playing)
+        {
+            const double currentTime = GetTime();
+            double frameTime = currentTime - previousTime;
+            previousTime = currentTime;
+
+            // Cap the frame time to prevent the "Spiral of Death" during lag spikes
+            if (frameTime > MAX_FRAME_TIME)
+            {
+                frameTime = MAX_FRAME_TIME;
+            }
+            accumulator += frameTime;
+
+            // --- CAMERA CONTROLS ---
+            camera.zoom += (static_cast<float>(GetMouseWheelMove()) * CAMERA_ZOOM_SPEED);
+            if (camera.zoom < CAMERA_MIN_ZOOM)
+            {
+                camera.zoom = CAMERA_MIN_ZOOM;
+            }
+
+            if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE))
+            {
+                Vector2 delta = GetMouseDelta();
+                camera.target.x -= delta.x / camera.zoom;
+                camera.target.y -= delta.y / camera.zoom;
+            }
+
+            // --- PLAYER INPUT ---
+            const Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
+
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                grid.SpawnFood(mouseWorldPos.x, mouseWorldPos.y, FOOD_SPAWN_RADIUS);
+            }
+
+            if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+            {
+                grid.SpawnObstacle(mouseWorldPos.x, mouseWorldPos.y, OBSTACLE_SPAWN_RADIUS);
+            }
+
+            if (IsKeyDown(KEY_SPACE))
+            {
+                grid.AddRallyPheromone(mouseWorldPos.x, mouseWorldPos.y, RALLY_SPAWN_RADIUS,
+                                       RALLY_INTENSITY * static_cast<float>(FIXED_DT));
+            }
+
+            // --- FIXED TIMESTEP UPDATE ---
+            while (accumulator >= FIXED_DT)
+            {
+                grid.PrepareUpdate();
+
+                const int rowsPerJob = grid.GetHeight() / THREAD_JOB_COUNT;
+                for (int i = 0; i < THREAD_JOB_COUNT; ++i)
+                {
+                    const int startY = i * rowsPerJob;
+                    const int endY = (i == THREAD_JOB_COUNT - 1) ? grid.GetHeight() : startY + rowsPerJob;
+
+                    world->GetThreadPool().QueueJob([&grid, startY, endY]()
+                                                    { grid.UpdateChunk(FIXED_DT, startY, endY); });
+                }
+
+                world->GetThreadPool().WaitAll();
+
+                world->Update(FIXED_DT);
+                accumulator -= FIXED_DT;
+            }
+
+            // --- RENDERING ---
+            BeginDrawing();
+            ClearBackground(RAYWHITE);
+
+            BeginMode2D(camera);
+            grid.DrawDebug();
+            world->Draw();
+            EndMode2D();
+
+            DrawFPS(10, 10);
+
+            EndDrawing();
+        }
+    }
+
+    // --- SHUTDOWN ---
+    grid.Cleanup();
+    CloseWindow();
+    delete world;
+
+    return 0;
+}
+
+
+============================================================
+FILE: ./games/ants/include/pheromonegrid.h
+============================================================
+
+#pragma once
+#include "raylib.h"
+#include <vector>
+
+struct PheromoneCell
+{
+    float m_HomeScent = 0.0f;
+    float m_FoodScent = 0.0f;
+    float m_RallyScent = 0.0f;
+    bool m_IsObstacle = false;
+};
+
+struct FoodSource
+{
+    float m_X;
+    float m_Y;
+    float m_Radius;
+};
+
+struct Nest
+{
+    float m_X;
+    float m_Y;
+    float m_Radius;
+};
+
+class PheromoneGrid
+{
+public:
+    PheromoneGrid(int screenWidth, int screenHeight, int cellSize);
+    void Cleanup();
+
+    int GetWidth() const { return m_Cols * m_CellSize; }
+    int GetHeight() const { return m_Rows * m_CellSize; }
+
+    void PrepareUpdate();
+    void UpdateChunk(double dt, int startY, int endY);
+    void DrawDebug() const; // So we can actually see the invisible trails!
+
+    void AddHomePheromone(float worldX, float worldY, float amount);
+    void AddFoodPheromone(float worldX, float worldY, float amount);
+    void AddRallyPheromone(float worldX, float worldY, float radius, float amount);
+
+    // Scent reading functions (for the ants to sniff)
+    float GetHomePheromone(float worldX, float worldY) const;
+    float GetFoodPheromone(float worldX, float worldY) const;
+    float GetRallyPheromone(float worldX, float worldY) const;
+
+    // Food Management ---
+    void SpawnFood(float x, float y, float radius);
+    bool CheckFoodCollision(float antX, float antY) const;
+    bool TryHarvestFood(float antX, float antY, float amount);
+
+    // Nest info ---
+    void SetNest(float x, float y, float radius);
+    bool CheckNestCollision(float antX, float antY) const;
+
+    float GetNestX() const { return m_Nest.m_X; }
+    float GetNestY() const { return m_Nest.m_Y; }
+
+    // Obstacle
+    void SpawnObstacle(float x, float y, float radius);
+    bool IsObstacle(float x, float y) const;
+
+private:
+    int m_CellSize;
+    int m_Cols;
+    int m_Rows;
+
+    std::vector<PheromoneCell> m_Grid;
+    std::vector<PheromoneCell> m_OldGrid;
+
+    std::vector<FoodSource> m_FoodSources;
+
+    Nest m_Nest;
+
+    Texture2D m_GridTexture;
+    Color* m_PixelData;
+    int GetIndex(float worldX, float worldY) const;
+};
+
+
+============================================================
+FILE: ./games/ants/include/ant.h
+============================================================
+
+#pragma once
+#include "core/gameobject.h"
+#include "pheromonegrid.h"
+#include "raylib.h"
+
+enum class AntState
+{
+    Wandering,
+    FoundFood,
+    ReturningToNest,
+    Patrol
+};
+
+class Ant : public GameObject
+{
+public:
+    Ant(float startX, float startY, PheromoneGrid* grid, Color color, float speed);
+
+    virtual void Update(double dt) override;
+    virtual void Draw() const override;
+    virtual size_t GetMemorySize() const override;
+    virtual float GetX() const override { return m_X; }
+    virtual float GetY() const override { return m_Y; }
+
+protected:
+    float m_X, m_Y;
+    float m_Dx, m_Dy;
+    float m_Speed;
+    AntState m_CurrentState;
+    Color m_Color;
+    PheromoneGrid* m_Grid;
+    float m_HarvestTimer;
+    float m_FoodScentStrength;
+
+    float m_SensorDistance;
+    float m_SensorAngle;
+
+    void NormalizeDirection();
+    float Sense(float sensorX, float sensorY, bool lookingForFood);
+    float SenseRally(float sensorX, float sensorY);
+    void HandleWanderingState(double dt);
+    void HandleReturningState(double dt);
+    void MoveAndBounce(double dt);
+};
+
+class WorkerAnt : public Ant
+{
+public:
+    WorkerAnt(float startX, float startY, PheromoneGrid* grid) : Ant(startX, startY, grid, BLACK, 80.0f) {}
+
+    size_t GetMemorySize() const override { return sizeof(*this); }
+};
+
+class SoldierAnt : public Ant
+{
+public:
+    SoldierAnt(float startX, float startY, PheromoneGrid* grid) : Ant(startX, startY, grid, DARKBLUE, 40.0f)
+    {
+        m_CurrentState = AntState::Patrol;
+    }
+
+    size_t GetMemorySize() const override { return sizeof(*this); }
+    void Update(double dt) override;
+    void Draw() const override;
+};
+
+
+============================================================
+FILE: ./engine/src/memory/binnedallocator.cpp
+============================================================
+
+#include "memory/binnedallocator.h"
+
+#include <iostream>
+
+void BinnedAllocator::Init()
+{
+    m_Bin32.Init(32, 10);
+    m_Bin64.Init(64, 150000);
+    m_Bin128.Init(128, 10);
+    m_Bin256.Init(256, 100);
+}
+
+void* BinnedAllocator::Allocate(const size_t size)
+{
+    if (size <= 32)
+    {
+        MEM_LOG("Allocating in Bin32");
+        return m_Bin32.Allocate();
+    }
+    else if (size <= 64)
+    {
+        MEM_LOG("Allocating in Bin64");
+        return m_Bin64.Allocate();
+    }
+    else if (size <= 128)
+    {
+        MEM_LOG("Allocating in Bin128");
+        return m_Bin128.Allocate();
+    }
+    else if (size <= 256)
+    {
+        MEM_LOG("Allocating in Bin256");
+        return m_Bin256.Allocate();
+    }
+    else
+    {
+        std::cout << "[MEM] Fallback to malloc for massive object!" << std::endl;
+        return malloc(size);
+    }
+}
+
+void BinnedAllocator::Free(void* ptr, const size_t size)
+{
+    if (size <= 32)
+    {
+        m_Bin32.Free(ptr);
+    }
+    else if (size <= 64)
+    {
+        m_Bin64.Free(ptr);
+    }
+    else if (size <= 128)
+    {
+        m_Bin128.Free(ptr);
+    }
+    else if (size <= 256)
+    {
+        m_Bin256.Free(ptr);
+    }
+    else
+    {
+        free(ptr);
+    }
+}
+
+
+============================================================
+FILE: ./engine/src/memory/memorypool.cpp
+============================================================
+
+#include "memory/memorypool.h"
+#include <cstdlib>
+
+MemoryPool::~MemoryPool()
+{
+    // Loop through every page we ever requested and give it back to the OS
+    for (void* page : m_Pages)
+    {
+        std::free(page);
+    }
+    MEM_LOG("Deleted all memory pages");
+}
+
+bool MemoryPool::Init(const size_t chunkSize, const size_t chunksPerPage)
+{
+    const size_t ChunkStructSize = sizeof(Chunk*);
+    m_ChunkSize = chunkSize > ChunkStructSize ? chunkSize : ChunkStructSize;
+    m_ChunksPerPage = chunksPerPage;
+
+    const size_t alignment = sizeof(void*);
+    const size_t remainder = m_ChunkSize % alignment;
+    if (remainder != 0)
+    {
+        m_ChunkSize += (alignment - remainder);
+    }
+
+    return true;
+}
+
+void MemoryPool::ExpandPool()
+{
+    const size_t totalMemory = m_ChunkSize * m_ChunksPerPage;
+    void* newPage = std::malloc(totalMemory);
+    m_Pages.push_back(newPage);
+
+    MEM_LOG("Pool was empty! Allocated a new page of " << totalMemory << " bytes");
+
+    m_Head = reinterpret_cast<Chunk*>(newPage);
+    Chunk* cur = m_Head;
+
+    for (size_t i = 0; i < m_ChunksPerPage - 1; ++i)
+    {
+        char* curAddr = reinterpret_cast<char*>(cur);
+        char* nextAddr = curAddr + m_ChunkSize;
+
+        Chunk* next = reinterpret_cast<Chunk*>(nextAddr);
+        cur->m_Next = next;
+        cur = cur->m_Next;
+    }
+
+    cur->m_Next = nullptr;
+}
+
+void* MemoryPool::Allocate()
+{
+    if (m_Head == nullptr)
+    {
+        ExpandPool();
+    }
+
+    Chunk* memory = m_Head;
+    m_Head = m_Head->m_Next;
+    return static_cast<void*>(memory);
+}
+
+bool MemoryPool::Free(void* ptr)
+{
+    if (ptr == nullptr)
+    {
+        return false;
+    }
+
+    Chunk* chunk = reinterpret_cast<Chunk*>(ptr);
+    chunk->m_Next = m_Head;
+    m_Head = chunk;
+    return true;
+}
+
+
+============================================================
+FILE: ./engine/src/core/world.cpp
+============================================================
+
+#include "core/world.h"
+
+#include "core/spatialgrid.h"
+
+World::World()
+{
+    unsigned int numThreads = std::thread::hardware_concurrency();
+    if (numThreads == 0)
+    {
+        numThreads = 4;
+    }
+
+    m_ThreadPool.Start(numThreads);
+}
+
+World::~World()
+{
+    m_ThreadPool.Stop();
+    delete m_SpatialGrid;
+}
+
+void World::Init()
+{
+    m_SpatialGrid = new SpatialGrid(5000.0f, 5000.0f, 50.0f);
+    m_MemoryManager.Init();
+    m_Objects.reserve(200000);
+}
+
+void World::Update(const double dt)
+{
+    m_SpatialGrid->Clear();
+    for (GameObject* obj : m_Objects)
+    {
+        m_SpatialGrid->Insert(obj, obj->GetX(), obj->GetY());
+    }
+
+    for (GameObject* obj : m_Objects)
+    {
+        obj->Update(dt);
+    }
+
+    for (int i = static_cast<int>(m_Objects.size()) - 1; i >= 0; --i)
+    {
+        if (m_Objects[i]->IsPendingKill())
+        {
+            GameObject* obj = m_Objects[i];
+            const size_t size = obj->GetMemorySize();
+            obj->~GameObject();
+            m_MemoryManager.Free(obj, size);
+            m_Objects.erase(m_Objects.begin() + i);
+        }
+    }
+}
+
+void World::Draw() const
+{
+    for (const GameObject* obj : m_Objects)
+    {
+        obj->Draw();
+    }
+}
+
+
+============================================================
+FILE: ./engine/src/core/threadpool.cpp
+============================================================
+
+#include "core/threadpool.h"
+
+ThreadPool::ThreadPool() {}
+
+ThreadPool::~ThreadPool() { Stop(); }
+
+void ThreadPool::Start(uint32_t numThreads)
+{
+    m_Threads.reserve(numThreads);
+    for (uint32_t i = 0; i < numThreads; ++i)
+    {
+        m_Threads.emplace_back(&ThreadPool::ThreadLoop, this);
+    }
+}
+
+void ThreadPool::ThreadLoop()
+{
+    while (true)
+    {
+        std::function<void()> job;
+        {
+            std::unique_lock<std::mutex> lock(m_QueueMutex);
+            m_MutexCondition.wait(lock, [this] { return !m_Jobs.empty() || m_ShouldTerminate; });
+
+            if (m_ShouldTerminate && m_Jobs.empty())
+            {
+                return;
+            }
+
+            job = m_Jobs.front();
+            m_Jobs.pop();
+        }
+
+        job();
+
+        {
+            std::unique_lock<std::mutex> lock(m_WaitMutex);
+            m_ActiveJobs--;
+
+            if (m_ActiveJobs == 0 && m_Jobs.empty())
+            {
+                m_WaitCondition.notify_all();
+            }
+        }
+    }
+}
+
+void ThreadPool::QueueJob(const std::function<void()>& job)
+{
+    {
+        std::unique_lock<std::mutex> lock(m_QueueMutex);
+        m_Jobs.push(job);
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(m_WaitMutex);
+        m_ActiveJobs++;
+    }
+
+    m_MutexCondition.notify_one();
+}
+
+void ThreadPool::WaitAll()
+{
+    std::unique_lock<std::mutex> lock(m_WaitMutex);
+
+    m_WaitCondition.wait(lock, [this] { return m_ActiveJobs == 0 && m_Jobs.empty(); });
+}
+
+void ThreadPool::Stop()
+{
+    {
+        std::unique_lock<std::mutex> lock(m_QueueMutex);
+        m_ShouldTerminate = true;
+    }
+
+    m_MutexCondition.notify_all();
+
+    for (std::thread& active_thread : m_Threads)
+    {
+        if (active_thread.joinable())
+        {
+            active_thread.join();
+        }
+    }
+
+    m_Threads.clear();
+}
+
+
+============================================================
+FILE: ./engine/src/core/spatialgrid.cpp
+============================================================
+
+#include "core/spatialgrid.h"
+
+#include <algorithm>
+#include <cmath>
+
+SpatialGrid::SpatialGrid(float width, float height, float cellSize) : m_CellSize(cellSize)
+{
+    m_Cols = static_cast<int>(std::ceil(width / cellSize));
+    m_Rows = static_cast<int>(std::ceil(height / cellSize));
+    m_Buckets.resize(m_Cols * m_Rows);
+}
+
+void SpatialGrid::Clear()
+{
+    for (auto& bucket : m_Buckets)
+    {
+        bucket.clear();
+    }
+}
+
+int SpatialGrid::GetBucketIndex(float x, float y) const
+{
+    int col = static_cast<int>(x / m_CellSize);
+    int row = static_cast<int>(y / m_CellSize);
+
+    col = std::max(0, std::min(col, m_Cols - 1));
+    row = std::max(0, std::min(row, m_Rows - 1));
+
+    return row * m_Cols + col;
+}
+
+void SpatialGrid::Insert(GameObject* obj, float x, float y)
+{
+    const int index = GetBucketIndex(x, y);
+    m_Buckets[index].push_back(obj);
+}
+
+void SpatialGrid::GetNearby(std::vector<GameObject*>& outList, float x, float y, float radius) const
+{
+    const int startCol = std::max(0, static_cast<int>((x - radius) / m_CellSize));
+    const int startRow = std::max(0, static_cast<int>((y - radius) / m_CellSize));
+    const int endCol = std::min(m_Cols - 1, static_cast<int>((x + radius) / m_CellSize));
+    const int endRow = std::min(m_Rows - 1, static_cast<int>((y + radius) / m_CellSize));
+
+    for (int row = startRow; row <= endRow; ++row)
+    {
+        for (int col = startCol; col <= endCol; ++col)
+        {
+            const int index = row * m_Cols + col;
+            for (GameObject* obj : m_Buckets[index])
+            {
+                outList.push_back(obj);
+            }
+        }
+    }
+}
+
+
+============================================================
+FILE: ./engine/include/core/world.h
+============================================================
+
+#pragma once
+#include "core/gameobject.h"
+#include "core/threadpool.h"
+#include "memory/binnedallocator.h"
+#include <vector>
+
+class SpatialGrid;
+
+class World
+{
+public:
+    World();
+    ~World();
+    void Init();
+
+    template <typename T, typename... Args> T* NewGameObject(Args&&... args)
+    {
+        void* memory = m_MemoryManager.Allocate(sizeof(T));
+        if (memory == nullptr)
+            return nullptr;
+
+        T* object = new (memory) T(std::forward<Args>(args)...);
+        m_Objects.push_back(object);
+        return object;
+    }
+
+    void Update(const double dt);
+    void Draw() const;
+
+    ThreadPool& GetThreadPool() { return m_ThreadPool; }
+
+    SpatialGrid* GetSpatialGrid() const { return m_SpatialGrid; }
+
+private:
+    BinnedAllocator m_MemoryManager;
+    std::vector<GameObject*> m_Objects;
+    ThreadPool m_ThreadPool;
+    SpatialGrid* m_SpatialGrid = nullptr;
+};
+
+
+============================================================
+FILE: ./engine/include/core/spatialgrid.h
+============================================================
+
+#pragma once
+#include <vector>
+
+class GameObject;
+
+class SpatialGrid
+{
+public:
+    SpatialGrid(float width, float height, float cellSize);
+    void Clear();
+    void Insert(GameObject* obj, float x, float y);
+    void GetNearby(std::vector<GameObject*>& outList, float x, float y, float radius) const;
+
+private:
+    float m_CellSize;
+    int m_Cols;
+    int m_Rows;
+
+    std::vector<std::vector<GameObject*>> m_Buckets;
+    int GetBucketIndex(float x, float y) const;
+};
+
+
+============================================================
+FILE: ./engine/include/core/threadpool.h
+============================================================
+
+#pragma once
+#include <condition_variable>
+#include <cstdint>
+#include <functional>
+#include <mutex>
+#include <queue>
+#include <thread>
+#include <vector>
+
+class ThreadPool
+{
+public:
+    ThreadPool();
+    ~ThreadPool();
+
+    void Start(uint32_t numThreads);
+    void QueueJob(const std::function<void()>& job);
+    void WaitAll();
+    void Stop();
+
+private:
+    void ThreadLoop();
+
+    bool m_ShouldTerminate = false;
+    int m_ActiveJobs = 0;
+
+    std::mutex m_QueueMutex;
+    std::condition_variable m_MutexCondition;
+
+    std::mutex m_WaitMutex;
+    std::condition_variable m_WaitCondition;
+
+    std::vector<std::thread> m_Threads;
+    std::queue<std::function<void()>> m_Jobs;
+};
+
+
+============================================================
+FILE: ./engine/include/core/gameobject.h
+============================================================
+
+#pragma once
+#include <cstddef>
+
+class GameObject
+{
+public:
+    bool IsPendingKill() const { return m_IsPendingKill; }
+
+    virtual ~GameObject() = default;
+
+    virtual void Update(double dt) = 0;
+    virtual void Draw() const = 0;
+    virtual size_t GetMemorySize() const = 0;
+    virtual float GetX() const = 0;
+    virtual float GetY() const = 0;
+
+private:
+    bool m_IsPendingKill = false;
+};
+
+
+============================================================
+FILE: ./engine/include/memory/memorypool.h
+============================================================
+
+#pragma once
+#include <iostream>
+#include <vector>
+
+#define MEM_LOG(x) // std::cout << "[MEM] " << x << std::endl
+
+class MemoryPool
+{
+public:
+    MemoryPool() = default;
+    ~MemoryPool();
+
+    bool Init(const size_t chunkSize, const size_t chunksPerPage);
+    void* Allocate();
+    bool Free(void* ptr);
+
+private:
+    void ExpandPool(); // NEW: Asks the OS for another page
+
+    struct Chunk
+    {
+        Chunk* m_Next = nullptr;
+    };
+
+    Chunk* m_Head = nullptr;
+    size_t m_ChunkSize = 0;
+    size_t m_ChunksPerPage = 0;
+
+    std::vector<void*> m_Pages; // NEW: Tracks every OS allocation
+};
+
+
+============================================================
+FILE: ./engine/include/memory/binnedallocator.h
+============================================================
+
+#pragma once
+#include "memorypool.h"
+
+class BinnedAllocator
+{
+public:
+    void Init();
+
+    void* Allocate(const size_t size);
+    void Free(void* ptr, const size_t size);
+
+private:
+    MemoryPool m_Bin32;
+    MemoryPool m_Bin64;
+    MemoryPool m_Bin128;
+    MemoryPool m_Bin256;
+};
+
+
