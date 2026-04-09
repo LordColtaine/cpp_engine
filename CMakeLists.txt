@@ -28,6 +28,7 @@ set(ENGINE_SOURCES
     engine/include/core/world.h
     engine/include/core/threadpool.h
     engine/include/core/spatialgrid.h
+    engine/include/core/typeid.h
 )
 
 add_library(core_engine STATIC ${ENGINE_SOURCES})
@@ -41,6 +42,7 @@ set(GAME_ANTS_SOURCES
     
     games/ants/include/ant.h
     games/ants/include/pheromonegrid.h
+    games/ants/include/food.h
 )
 
 add_executable(game_ants ${GAME_ANTS_SOURCES})

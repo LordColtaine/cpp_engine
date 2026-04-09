@@ -168,56 +168,11 @@ float PheromoneGrid::GetFoodPheromone(float worldX, float worldY) const
     return m_Grid[GetIndex(worldX, worldY)].m_FoodScent;
 }
 
-void PheromoneGrid::SpawnFood(float x, float y, float radius) { m_FoodSources.push_back({x, y, radius}); }
-
-bool PheromoneGrid::CheckFoodCollision(float antX, float antY) const
-{
-    for (const auto& food : m_FoodSources)
-    {
-        const float dx = antX - food.m_X;
-        const float dy = antY - food.m_Y;
-        const float distanceSquared = dx * dx + dy * dy;
-
-        if (distanceSquared <= (food.m_Radius * food.m_Radius))
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool PheromoneGrid::TryHarvestFood(float antX, float antY, float amount)
-{
-    for (auto it = m_FoodSources.begin(); it != m_FoodSources.end(); ++it)
-    {
-        const float dx = antX - it->m_X;
-        const float dy = antY - it->m_Y;
-
-        if ((dx * dx + dy * dy) <= (it->m_Radius * it->m_Radius))
-        {
-            it->m_Radius -= amount;
-            if (it->m_Radius <= MIN_ALPHA)
-            {
-                m_FoodSources.erase(it);
-            }
-
-            return true;
-        }
-    }
-
-    return false;
-}
-
 void PheromoneGrid::DrawDebug() const
 {
     UpdateTexture(m_GridTexture, m_PixelData);
     DrawTextureEx(m_GridTexture, {0.0f, 0.0f}, 0.0f, static_cast<float>(m_CellSize), WHITE);
     DrawCircle(static_cast<int>(m_Nest.m_X), static_cast<int>(m_Nest.m_Y), m_Nest.m_Radius, DARKBROWN);
-    for (const auto& food : m_FoodSources)
-    {
-        DrawCircle(static_cast<int>(food.m_X), static_cast<int>(food.m_Y), food.m_Radius, GREEN);
-    }
 }
 
 void PheromoneGrid::SetNest(float x, float y, float radius) { m_Nest = {x, y, radius}; }

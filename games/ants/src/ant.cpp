@@ -1,5 +1,8 @@
 #include "ant.h"
 
+#include "core/spatialgrid.h"
+#include "core/world.h"
+#include "food.h"
 #include <cmath>
 #include <cstdlib>
 
@@ -91,7 +94,25 @@ void Ant::Update(double dt)
     {
         if (m_Grid != nullptr)
         {
-            const bool gotBite = m_Grid->TryHarvestFood(m_X, m_Y, HARVEST_RATE * static_cast<float>(dt));
+            bool gotBite = false;
+            std::vector<GameObject*> nearbyObjects;
+            GetWorld()->GetSpatialGrid()->GetNearby(nearbyObjects, m_X, m_Y, m_SensorDistance);
+
+            for (GameObject* obj : nearbyObjects)
+            {
+                if (obj->IsA<Food>())
+                {
+                    Food* foodObj = static_cast<Food*>(obj);
+                    float dx = m_X - foodObj->GetX();
+                    float dy = m_Y - foodObj->GetY();
+
+                    if ((dx * dx + dy * dy) <= (foodObj->GetRadius() * foodObj->GetRadius()))
+                    {
+                        gotBite = foodObj->Harvest(HARVEST_RATE * static_cast<float>(dt));
+                        break;
+                    }
+                }
+            }
 
             if (gotBite)
             {
@@ -303,19 +324,34 @@ void Ant::HandleWanderingState(double dt)
 
     // --- DROP HOME SCENT & CHECK FOOD COLLISION ---
     m_Grid->AddHomePheromone(m_X, m_Y, HOME_SCENT_DROP_RATE * static_cast<float>(dt));
-    if (m_Grid->CheckFoodCollision(m_X, m_Y))
+    std::vector<GameObject*> nearbyObjects;
+    GetWorld()->GetSpatialGrid()->GetNearby(nearbyObjects, m_X, m_Y, m_SensorDistance);
+
+    for (GameObject* obj : nearbyObjects)
     {
-        m_CurrentState = AntState::FoundFood;
-        m_Color = ORANGE;
-        m_HarvestTimer = 0.0f;
+        if (obj->IsA<Food>())
+        {
+            Food* foodObj = static_cast<Food*>(obj);
+            float dx = m_X - foodObj->GetX();
+            float dy = m_Y - foodObj->GetY();
 
-        // Calculate exact angle to the nest so we face home while eating!
-        const float dxToNest = m_Grid->GetNestX() - m_X;
-        const float dyToNest = m_Grid->GetNestY() - m_Y;
-        const float angleToNest = std::atan2(dyToNest, dxToNest);
+            // Are we physically touching the food's radius?
+            if ((dx * dx + dy * dy) <= (foodObj->GetRadius() * foodObj->GetRadius()))
+            {
+                m_CurrentState = AntState::FoundFood;
+                m_Color = ORANGE;
+                m_HarvestTimer = 0.0f;
 
-        m_Dx = std::cos(angleToNest);
-        m_Dy = std::sin(angleToNest);
+                // Face the nest while eating
+                const float dxToNest = m_Grid->GetNestX() - m_X;
+                const float dyToNest = m_Grid->GetNestY() - m_Y;
+                const float angleToNest = std::atan2(dyToNest, dxToNest);
+                m_Dx = std::cos(angleToNest);
+                m_Dy = std::sin(angleToNest);
+
+                break; // Stop looking, we found a meal!
+            }
+        }
     }
 
     // Twitching and Movement

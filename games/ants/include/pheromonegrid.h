@@ -48,11 +48,6 @@ public:
     float GetFoodPheromone(float worldX, float worldY) const;
     float GetRallyPheromone(float worldX, float worldY) const;
 
-    // Food Management ---
-    void SpawnFood(float x, float y, float radius);
-    bool CheckFoodCollision(float antX, float antY) const;
-    bool TryHarvestFood(float antX, float antY, float amount);
-
     // Nest info ---
     void SetNest(float x, float y, float radius);
     bool CheckNestCollision(float antX, float antY) const;
@@ -71,8 +66,6 @@ private:
 
     std::vector<PheromoneCell> m_Grid;
     std::vector<PheromoneCell> m_OldGrid;
-
-    std::vector<FoodSource> m_FoodSources;
 
     Nest m_Nest;
 

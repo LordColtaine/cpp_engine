@@ -49,6 +49,7 @@ public:
     WorkerAnt(float startX, float startY, PheromoneGrid* grid) : Ant(startX, startY, grid, BLACK, 80.0f) {}
 
     size_t GetMemorySize() const override { return sizeof(*this); }
+    size_t GetInstanceTypeID() const override { return GetTypeID<WorkerAnt>(); }
 };
 
 class SoldierAnt : public Ant
@@ -62,4 +63,5 @@ public:
     size_t GetMemorySize() const override { return sizeof(*this); }
     void Update(double dt) override;
     void Draw() const override;
+    size_t GetInstanceTypeID() const override { return GetTypeID<SoldierAnt>(); }
 };

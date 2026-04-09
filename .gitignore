@@ -47,3 +47,8 @@ compile_commands.json
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Custom Project Files
+codebase_dump.txt
+combine.py
+ideas.txt

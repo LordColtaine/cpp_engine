@@ -1,5 +1,6 @@
 #include "ant.h"
 #include "core/world.h"
+#include "food.h"
 #include "pheromonegrid.h"
 #include "raylib.h"
 #include <algorithm>
@@ -164,7 +165,7 @@ int main()
 
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
-                grid.SpawnFood(mouseWorldPos.x, mouseWorldPos.y, FOOD_SPAWN_RADIUS);
+                world->NewGameObject<Food>(mouseWorldPos.x, mouseWorldPos.y, FOOD_SPAWN_RADIUS);
             }
 
             if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
