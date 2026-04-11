@@ -17,13 +17,6 @@ struct FoodSource
     float m_Radius;
 };
 
-struct Nest
-{
-    float m_X;
-    float m_Y;
-    float m_Radius;
-};
-
 class PheromoneGrid
 {
 public:
@@ -48,13 +41,6 @@ public:
     float GetFoodPheromone(float worldX, float worldY) const;
     float GetRallyPheromone(float worldX, float worldY) const;
 
-    // Nest info ---
-    void SetNest(float x, float y, float radius);
-    bool CheckNestCollision(float antX, float antY) const;
-
-    float GetNestX() const { return m_Nest.m_X; }
-    float GetNestY() const { return m_Nest.m_Y; }
-
     // Obstacle
     void SpawnObstacle(float x, float y, float radius);
     bool IsObstacle(float x, float y) const;
@@ -66,8 +52,6 @@ private:
 
     std::vector<PheromoneCell> m_Grid;
     std::vector<PheromoneCell> m_OldGrid;
-
-    Nest m_Nest;
 
     Texture2D m_GridTexture;
     Color* m_PixelData;

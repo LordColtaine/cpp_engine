@@ -2,6 +2,7 @@
 #include "core/world.h"
 #include "food.h"
 #include "logger/logger.h"
+#include "nest.h"
 #include "pheromonegrid.h"
 #include "raylib.h"
 #include <algorithm>
@@ -75,7 +76,7 @@ int main()
     world->Init();
 
     PheromoneGrid grid(WORLD_WIDTH, WORLD_HEIGHT, GRID_CELL_SIZE);
-    grid.SetNest(worldCenterX, worldCenterY, NEST_RADIUS);
+    Nest* nest = world->NewGameObject<Nest>(worldCenterX, worldCenterY, NEST_RADIUS, &grid);
 
     // --- Initialize the Camera ---
     Camera2D camera = {0};
@@ -134,11 +135,11 @@ int main()
                 const float spawnY = worldCenterY + offsetY;
                 if (rand() % 100 < SOLDIER_SPAWN_CHANCE)
                 {
-                    world->NewGameObject<SoldierAnt>(spawnX, spawnY, &grid);
+                    world->NewGameObject<SoldierAnt>(spawnX, spawnY, &grid, nest);
                 }
                 else
                 {
-                    world->NewGameObject<WorkerAnt>(spawnX, spawnY, &grid);
+                    world->NewGameObject<WorkerAnt>(spawnX, spawnY, &grid, nest);
                 }
             }
             antsSpawned += batchSize;

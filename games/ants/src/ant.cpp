@@ -65,10 +65,10 @@ namespace
 // ANT IMPLEMENTATION
 // ==========================================
 
-Ant::Ant(float startX, float startY, PheromoneGrid* grid, Color color, float speed)
+Ant::Ant(float startX, float startY, PheromoneGrid* grid, Nest* nest, Color color, float speed)
     : m_X(startX), m_Y(startY), m_Speed(speed), m_CurrentState(AntState::Wandering), m_Color(color), m_Grid(grid),
-      m_HarvestTimer(0.0f), m_SensorDistance(DEFAULT_SENSOR_DISTANCE), m_SensorAngle(DEFAULT_SENSOR_ANGLE),
-      m_FoodScentStrength(0.0f)
+      m_Nest(nest), m_HarvestTimer(0.0f), m_SensorDistance(DEFAULT_SENSOR_DISTANCE),
+      m_SensorAngle(DEFAULT_SENSOR_ANGLE), m_FoodScentStrength(0.0f)
 {
     m_Dx = GetRandomSymmetric();
     m_Dy = GetRandomSymmetric();
@@ -236,8 +236,8 @@ void SoldierAnt::Update(double dt)
         return;
     }
 
-    const float dxToNest = m_Grid->GetNestX() - m_X;
-    const float dyToNest = m_Grid->GetNestY() - m_Y;
+    const float dxToNest = m_Nest->GetX() - m_X;
+    const float dyToNest = m_Nest->GetY() - m_Y;
     const float distSq = dxToNest * dxToNest + dyToNest * dyToNest;
 
     if (distSq > PATROL_RADIUS * PATROL_RADIUS)
@@ -379,8 +379,8 @@ void Ant::HandleWanderingState(double dt)
             m_Color = ORANGE;
             m_HarvestTimer = 0.0f;
 
-            const float dxToNest = m_Grid->GetNestX() - m_X;
-            const float dyToNest = m_Grid->GetNestY() - m_Y;
+            const float dxToNest = m_Nest->GetX() - m_X;
+            const float dyToNest = m_Nest->GetY() - m_Y;
             const float angleToNest = std::atan2(dyToNest, dxToNest);
             m_Dx = std::cos(angleToNest);
             m_Dy = std::sin(angleToNest);
@@ -421,8 +421,8 @@ void Ant::HandleReturningState(double dt)
     const float rightWall = Sense(rightX, rightY, false);
 
     float currentAngle = std::atan2(m_Dy, m_Dx);
-    const float dxToNest = m_Grid->GetNestX() - m_X;
-    const float dyToNest = m_Grid->GetNestY() - m_Y;
+    const float dxToNest = m_Nest->GetX() - m_X;
+    const float dyToNest = m_Nest->GetY() - m_Y;
     const float targetAngle = std::atan2(dyToNest, dxToNest);
 
     const float turnSpeed = BASE_TURN_SPEED * static_cast<float>(dt);
@@ -481,8 +481,10 @@ void Ant::HandleReturningState(double dt)
         m_FoodScentStrength = MIN_SCENT_PAYLOAD;
     }
 
-    if (m_Grid->CheckNestCollision(m_X, m_Y))
+    if (m_Nest->CheckCollision(m_X, m_Y))
     {
+        m_Nest->DepositFood(m_CarriedFood);
+
         m_CurrentState = AntState::Wandering;
         m_Color = BLACK;
         m_Dx *= -1.0f;

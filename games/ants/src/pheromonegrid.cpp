@@ -182,18 +182,6 @@ void PheromoneGrid::DrawDebug() const
     }
 
     DrawTextureEx(m_GridTexture, {0.0f, 0.0f}, 0.0f, static_cast<float>(m_CellSize), WHITE);
-    DrawCircle(static_cast<int>(m_Nest.m_X), static_cast<int>(m_Nest.m_Y), m_Nest.m_Radius, DARKBROWN);
-}
-
-void PheromoneGrid::SetNest(float x, float y, float radius) { m_Nest = {x, y, radius}; }
-
-bool PheromoneGrid::CheckNestCollision(float antX, float antY) const
-{
-    const float dx = antX - m_Nest.m_X;
-    const float dy = antY - m_Nest.m_Y;
-    const float distanceSquared = dx * dx + dy * dy;
-
-    return distanceSquared <= (m_Nest.m_Radius * m_Nest.m_Radius);
 }
 
 void PheromoneGrid::SpawnObstacle(float x, float y, float radius)

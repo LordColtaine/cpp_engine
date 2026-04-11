@@ -41,10 +41,12 @@ set(GAME_ANTS_SOURCES
     games/ants/src/main.cpp
     games/ants/src/ant.cpp
     games/ants/src/pheromonegrid.cpp
+    games/ants/src/nest.cpp
     
     games/ants/include/ant.h
     games/ants/include/pheromonegrid.h
     games/ants/include/food.h
+    games/ants/include/nest.h
 )
 
 add_executable(game_ants ${GAME_ANTS_SOURCES})

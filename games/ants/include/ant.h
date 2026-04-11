@@ -1,5 +1,6 @@
 #pragma once
 #include "core/gameobject.h"
+#include "nest.h"
 #include "pheromonegrid.h"
 #include "raylib.h"
 
@@ -14,7 +15,7 @@ enum class AntState
 class Ant : public GameObject
 {
 public:
-    Ant(float startX, float startY, PheromoneGrid* grid, Color color, float speed);
+    Ant(float startX, float startY, PheromoneGrid* grid, Nest* nest, Color color, float speed);
 
     virtual void Update(double dt) override;
     virtual void Draw() const override;
@@ -39,6 +40,8 @@ protected:
     float m_CarriedFood = 0.0f;
     float m_MaxCarryCapacity = 10.0f;
 
+    Nest* m_Nest = nullptr;
+
     void NormalizeDirection();
     float Sense(float sensorX, float sensorY, bool lookingForFood);
     float SenseRally(float sensorX, float sensorY);
@@ -50,7 +53,10 @@ protected:
 class WorkerAnt : public Ant
 {
 public:
-    WorkerAnt(float startX, float startY, PheromoneGrid* grid) : Ant(startX, startY, grid, BLACK, 80.0f) {}
+    WorkerAnt(float startX, float startY, PheromoneGrid* grid, Nest* nest)
+        : Ant(startX, startY, grid, nest, BLACK, 80.0f)
+    {
+    }
 
     size_t GetMemorySize() const override { return sizeof(*this); }
     size_t GetInstanceTypeID() const override { return GetTypeID<WorkerAnt>(); }
@@ -59,7 +65,8 @@ public:
 class SoldierAnt : public Ant
 {
 public:
-    SoldierAnt(float startX, float startY, PheromoneGrid* grid) : Ant(startX, startY, grid, DARKBLUE, 40.0f)
+    SoldierAnt(float startX, float startY, PheromoneGrid* grid, Nest* nest)
+        : Ant(startX, startY, grid, nest, DARKBLUE, 40.0f)
     {
         m_CurrentState = AntState::Patrol;
     }
