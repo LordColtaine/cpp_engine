@@ -21,6 +21,7 @@ set(ENGINE_SOURCES
     engine/src/core/world.cpp
     engine/src/core/threadpool.cpp
     engine/src/core/spatialgrid.cpp
+    engine/src/logger/logger.cpp
     
     engine/include/memory/memorypool.h
     engine/include/memory/binnedallocator.h
@@ -29,6 +30,7 @@ set(ENGINE_SOURCES
     engine/include/core/threadpool.h
     engine/include/core/spatialgrid.h
     engine/include/core/typeid.h
+    engine/include/logger/logger.h
 )
 
 add_library(core_engine STATIC ${ENGINE_SOURCES})

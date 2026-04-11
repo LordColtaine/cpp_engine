@@ -1,14 +1,18 @@
 #include "memory/memorypool.h"
+#include "logger/logger.h"
 #include <cstdlib>
+#include <string>
 
 MemoryPool::~MemoryPool()
 {
-    // Loop through every page we ever requested and give it back to the OS
+    const size_t totalFreed = GetTotalMemory();
+
     for (void* page : m_Pages)
     {
         std::free(page);
     }
-    MEM_LOG("Deleted all memory pages");
+
+    LOG_INFO("Deleted all memory pages in MemoryPool. Freed a total of " + std::to_string(totalFreed) + " bytes.");
 }
 
 bool MemoryPool::Init(const size_t chunkSize, const size_t chunksPerPage)
@@ -33,7 +37,8 @@ void MemoryPool::ExpandPool()
     void* newPage = std::malloc(totalMemory);
     m_Pages.push_back(newPage);
 
-    MEM_LOG("Pool was empty! Allocated a new page of " << totalMemory << " bytes");
+    LOG_WARN("MemoryPool expanded! Allocated a new page of " + std::to_string(totalMemory) +
+             " bytes. Total Pool Size is now: " + std::to_string(GetTotalMemory()) + " bytes.");
 
     m_Head = reinterpret_cast<Chunk*>(newPage);
     Chunk* cur = m_Head;
@@ -49,6 +54,12 @@ void MemoryPool::ExpandPool()
     }
 
     cur->m_Next = nullptr;
+}
+
+size_t MemoryPool::GetTotalMemory() const
+{
+    // Total memory = Number of pages * Size of each page
+    return m_Pages.size() * (m_ChunkSize * m_ChunksPerPage);
 }
 
 void* MemoryPool::Allocate()

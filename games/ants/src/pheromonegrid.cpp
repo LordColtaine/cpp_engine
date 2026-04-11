@@ -1,5 +1,6 @@
 #include "pheromonegrid.h"
 
+#include "logger/logger.h"
 #include <algorithm>
 #include <iostream>
 #include <thread>
@@ -41,12 +42,15 @@ PheromoneGrid::PheromoneGrid(int screenWidth, int screenHeight, int cellSize) : 
     Image img = GenImageColor(m_Cols, m_Rows, BLANK);
     m_GridTexture = LoadTextureFromImage(img);
     UnloadImage(img);
+
+    LOG_INFO("PheromoneGrid initialized. Texture size: " + std::to_string(m_Cols) + "x" + std::to_string(m_Rows));
 }
 
 void PheromoneGrid::Cleanup()
 {
     delete[] m_PixelData;
     UnloadTexture(m_GridTexture);
+    LOG_INFO("PheromoneGrid cleaned up and texture unloaded.");
 }
 
 int PheromoneGrid::GetIndex(float worldX, float worldY) const

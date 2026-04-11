@@ -1,6 +1,7 @@
 #pragma once
 #include "core/gameobject.h"
 #include "core/threadpool.h"
+#include "logger/logger.h"
 #include "memory/binnedallocator.h"
 #include <vector>
 
@@ -21,6 +22,7 @@ public:
         void* memory = m_MemoryManager.Allocate(sizeof(T));
         if (memory == nullptr)
         {
+            LOG_ERROR("MemoryManager failed to allocate memory for GameObject!");
             return nullptr;
         }
 

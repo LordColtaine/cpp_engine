@@ -1,6 +1,7 @@
 #include "ant.h"
 #include "core/world.h"
 #include "food.h"
+#include "logger/logger.h"
 #include "pheromonegrid.h"
 #include "raylib.h"
 #include <algorithm>
@@ -54,6 +55,9 @@ enum class GameState
 
 int main()
 {
+    Logger::Get().Init("log.txt");
+    LOG_INFO("Logger initialized successfully.");
+
     SetConfigFlags(FLAG_FULLSCREEN_MODE);
     InitWindow(0, 0, "Ant Swarm Simulation");
     SetTargetFPS(TARGET_FPS);
@@ -80,6 +84,29 @@ int main()
     camera.rotation = 0.0f;
     camera.zoom = 1.0f;
 
+    RenderTexture2D backgroundTexture = LoadRenderTexture(WORLD_WIDTH, WORLD_HEIGHT);
+    BeginTextureMode(backgroundTexture);
+    ClearBackground({34, 139, 34, 255}); // Forest Green
+
+    // Dirt patch around nest.
+    DrawCircle(worldCenterX, worldCenterY, NEST_RADIUS + 50.0f, {139, 69, 19, 255}); // Saddle Brown
+    DrawCircle(worldCenterX, worldCenterY, NEST_RADIUS, {101, 67, 33, 255});         // Dark Brown for the hole
+
+    // Water puddles
+    DrawEllipse(200, 150, 80, 40, {30, 144, 255, 255}); // Dodger Blue
+    DrawEllipse(800, 600, 120, 60, {30, 144, 255, 255});
+
+    // random dirt splatters
+    for (int i = 0; i < 50; i++)
+    {
+        const int rx = GetRandomValue(0, WORLD_WIDTH);
+        const int ry = GetRandomValue(0, WORLD_HEIGHT);
+        const int rSize = GetRandomValue(100, 400);
+        DrawCircle(rx, ry, rSize, {105, 75, 55, 255});
+    }
+
+    EndTextureMode();
+
     GameState currentState = GameState::Loading;
     int antsSpawned = 0;
 
@@ -96,13 +123,22 @@ int main()
             const int batchSize = std::min(ANTS_SPAWN_PER_FRAME, TOTAL_ANTS_TO_SPAWN - antsSpawned);
             for (int i = 0; i < batchSize; i++)
             {
+                // Generate a random float between -1.0 and 1.0
+                const float randomX = (static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f;
+                const float randomY = (static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f;
+
+                const float offsetX = randomX * NEST_RADIUS;
+                const float offsetY = randomY * NEST_RADIUS;
+
+                const float spawnX = worldCenterX + offsetX;
+                const float spawnY = worldCenterY + offsetY;
                 if (rand() % 100 < SOLDIER_SPAWN_CHANCE)
                 {
-                    world->NewGameObject<SoldierAnt>(worldCenterX, worldCenterY, &grid);
+                    world->NewGameObject<SoldierAnt>(spawnX, spawnY, &grid);
                 }
                 else
                 {
-                    world->NewGameObject<WorkerAnt>(worldCenterX, worldCenterY, &grid);
+                    world->NewGameObject<WorkerAnt>(spawnX, spawnY, &grid);
                 }
             }
             antsSpawned += batchSize;
@@ -112,6 +148,7 @@ int main()
                 currentState = GameState::Playing;
                 previousTime = GetTime();
                 accumulator = 0.0;
+                LOG_INFO("Finished spawning " + std::to_string(TOTAL_ANTS_TO_SPAWN) + " ants. Entering Playing state.");
             }
 
             BeginDrawing();
@@ -139,11 +176,12 @@ int main()
             double frameTime = currentTime - previousTime;
             previousTime = currentTime;
 
-            // Cap the frame time to prevent the "Spiral of Death" during lag spikes
+            // Cap the frame time
             if (frameTime > MAX_FRAME_TIME)
             {
                 frameTime = MAX_FRAME_TIME;
             }
+
             accumulator += frameTime;
 
             // --- CAMERA CONTROLS ---
@@ -203,8 +241,15 @@ int main()
             // --- RENDERING ---
             BeginDrawing();
             ClearBackground(RAYWHITE);
-
             BeginMode2D(camera);
+
+            // --- DRAW THE STATIC WORLD BACKGROUND ---
+            // negative height flips the texture right-side up
+            Rectangle sourceRec = {0.0f, 0.0f, (float) backgroundTexture.texture.width,
+                                   (float) -backgroundTexture.texture.height};
+            Vector2 position = {0.0f, 0.0f};
+            DrawTextureRec(backgroundTexture.texture, sourceRec, position, WHITE);
+
             grid.DrawDebug();
             world->Draw();
             EndMode2D();
@@ -216,9 +261,12 @@ int main()
     }
 
     // --- SHUTDOWN ---
+    UnloadRenderTexture(backgroundTexture);
     grid.Cleanup();
     CloseWindow();
     delete world;
+
+    Logger::Get().Shutdown();
 
     return 0;
 }

@@ -31,7 +31,10 @@ void World::Update(const double dt)
     m_SpatialGrid->Clear();
     for (GameObject* obj : m_Objects)
     {
-        m_SpatialGrid->Insert(obj, obj->GetX(), obj->GetY());
+        if (obj->HasSpatialCollision())
+        {
+            m_SpatialGrid->Insert(obj, obj->GetX(), obj->GetY());
+        }
     }
 
     for (GameObject* obj : m_Objects)

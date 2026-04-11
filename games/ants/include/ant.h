@@ -21,6 +21,7 @@ public:
     virtual size_t GetMemorySize() const override;
     virtual float GetX() const override { return m_X; }
     virtual float GetY() const override { return m_Y; }
+    virtual bool HasSpatialCollision() const override { return false; }
 
 protected:
     float m_X, m_Y;
@@ -34,6 +35,9 @@ protected:
 
     float m_SensorDistance;
     float m_SensorAngle;
+
+    float m_CarriedFood = 0.0f;
+    float m_MaxCarryCapacity = 10.0f;
 
     void NormalizeDirection();
     float Sense(float sensorX, float sensorY, bool lookingForFood);

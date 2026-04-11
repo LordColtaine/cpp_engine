@@ -12,6 +12,7 @@ public:
     World* GetWorld() const { return m_World; }
 
     virtual ~GameObject() = default;
+    virtual bool HasSpatialCollision() const { return true; }
 
     template <typename T> bool IsA() const { return GetInstanceTypeID() == GetTypeID<T>(); }
 

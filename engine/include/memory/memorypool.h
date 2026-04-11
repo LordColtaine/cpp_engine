@@ -2,8 +2,6 @@
 #include <iostream>
 #include <vector>
 
-#define MEM_LOG(x) // std::cout << "[MEM] " << x << std::endl
-
 class MemoryPool
 {
 public:
@@ -18,6 +16,7 @@ public:
 
 private:
     void ExpandPool();
+    size_t GetTotalMemory() const;
 
     struct Chunk
     {

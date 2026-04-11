@@ -1,4 +1,5 @@
 #include "core/threadpool.h"
+#include "logger/logger.h"
 
 ThreadPool::ThreadPool() {}
 
@@ -11,6 +12,8 @@ void ThreadPool::Start(uint32_t numThreads)
     {
         m_Threads.emplace_back(&ThreadPool::ThreadLoop, this);
     }
+
+    LOG_INFO("ThreadPool started with " + std::to_string(numThreads) + " worker threads.");
 }
 
 void ThreadPool::ThreadLoop()
@@ -85,4 +88,5 @@ void ThreadPool::Stop()
     }
 
     m_Threads.clear();
+    LOG_INFO("ThreadPool shut down cleanly.");
 }

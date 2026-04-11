@@ -1,4 +1,5 @@
 #include "memory/binnedallocator.h"
+#include "logger/logger.h"
 
 #include <iostream>
 
@@ -12,29 +13,30 @@ void BinnedAllocator::Init()
 
 void* BinnedAllocator::Allocate(const size_t size)
 {
+    std::string sizeStr = std::to_string(size);
     if (size <= 32)
     {
-        MEM_LOG("Allocating in Bin32");
+        LOG_INFO("Allocating " + sizeStr + " in 32 byte bin.");
         return m_Bin32.Allocate();
     }
     else if (size <= 64)
     {
-        MEM_LOG("Allocating in Bin64");
+        LOG_INFO("Allocating " + sizeStr + " in 64 byte bin.");
         return m_Bin64.Allocate();
     }
     else if (size <= 128)
     {
-        MEM_LOG("Allocating in Bin128");
+        LOG_INFO("Allocating " + sizeStr + " in 128 byte bin.");
         return m_Bin128.Allocate();
     }
     else if (size <= 256)
     {
-        MEM_LOG("Allocating in Bin256");
+        LOG_INFO("Allocating " + sizeStr + " in 256 byte bin.");
         return m_Bin256.Allocate();
     }
     else
     {
-        std::cout << "[MEM] Fallback to malloc for massive object!" << std::endl;
+        LOG_WARN("Asking for " + sizeStr + " bytes, so falling back to malloc.");
         return malloc(size);
     }
 }

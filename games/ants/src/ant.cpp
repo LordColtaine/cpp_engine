@@ -25,7 +25,7 @@ namespace
     constexpr float PAYLOAD_DRAIN_RATE = 15.0f;
 
     // Harvesting
-    constexpr float HARVEST_RATE = 1.5f;
+    constexpr float HARVEST_RATE = 20.f;
     constexpr float HARVEST_TIME_FULL = 1.0f;
     constexpr float HARVEST_TIME_PARTIAL = 0.25f;
 
@@ -94,52 +94,79 @@ void Ant::Update(double dt)
     {
         if (m_Grid != nullptr)
         {
-            bool gotBite = false;
-            std::vector<GameObject*> nearbyObjects;
-            GetWorld()->GetSpatialGrid()->GetNearby(nearbyObjects, m_X, m_Y, m_SensorDistance);
+            thread_local std::vector<Food*> nearbyFood;
+            nearbyFood.clear();
+            GetWorld()->GetSpatialGrid()->GetNearbyType<Food>(nearbyFood, m_X, m_Y, m_SensorDistance);
 
-            for (GameObject* obj : nearbyObjects)
+            bool isTouchingFood = false;
+            Food* closestFood = nullptr;
+            float closestDistSq = 999999.0f;
+
+            for (Food* const foodObj : nearbyFood)
             {
-                if (obj->IsA<Food>())
-                {
-                    Food* foodObj = static_cast<Food*>(obj);
-                    float dx = m_X - foodObj->GetX();
-                    float dy = m_Y - foodObj->GetY();
+                const float dx = m_X - foodObj->GetX();
+                const float dy = m_Y - foodObj->GetY();
+                const float sqDist = dx * dx + dy * dy;
+                const float foodRadius = foodObj->GetRadius();
 
-                    if ((dx * dx + dy * dy) <= (foodObj->GetRadius() * foodObj->GetRadius()))
+                // Calculate movement of ant so small food particles aren't missed.
+                const float stride = m_Speed * static_cast<float>(dt);
+                const float hitRadius = foodRadius + stride;
+
+                if (sqDist <= (hitRadius * hitRadius))
+                {
+                    const float spaceLeft = m_MaxCarryCapacity - m_CarriedFood;
+                    const float requestedBite = std::min(HARVEST_RATE * static_cast<float>(dt), spaceLeft);
+                    const float actualBite = foodObj->Harvest(requestedBite);
+
+                    if (actualBite > 0.0f)
                     {
-                        gotBite = foodObj->Harvest(HARVEST_RATE * static_cast<float>(dt));
-                        break;
+                        m_CarriedFood += actualBite;
+                        isTouchingFood = true;
+
+                        if (m_CarriedFood >= (m_MaxCarryCapacity - 0.01f))
+                        {
+                            m_CarriedFood = m_MaxCarryCapacity;
+                            m_CurrentState = AntState::ReturningToNest;
+                            m_FoodScentStrength = MAX_SCENT_PAYLOAD;
+                            m_Color = BLUE;
+                        }
                     }
+                    break;
+                }
+
+                // Keep track of closest.
+                if (sqDist < closestDistSq)
+                {
+                    closestDistSq = sqDist;
+                    closestFood = foodObj;
                 }
             }
 
-            if (gotBite)
+            if (!isTouchingFood)
             {
-                m_HarvestTimer += dt;
-                if (m_HarvestTimer >= HARVEST_TIME_FULL)
+                if (closestFood != nullptr)
                 {
-                    m_CurrentState = AntState::ReturningToNest;
-                    m_Color = RED;
-                    m_FoodScentStrength = MAX_SCENT_PAYLOAD;
-                }
-            }
-            else
-            {
-                if (m_HarvestTimer > HARVEST_TIME_PARTIAL)
-                {
-                    m_CurrentState = AntState::ReturningToNest;
-                    m_FoodScentStrength = MAX_SCENT_PAYLOAD;
-                    m_Color = RED;
+                    const float dx = m_X - closestFood->GetX();
+                    const float dy = m_Y - closestFood->GetY();
+                    const float dist = std::sqrt(closestDistSq);
+
+                    m_X -= (dx / dist) * m_Speed * static_cast<float>(dt);
+                    m_Y -= (dy / dist) * m_Speed * static_cast<float>(dt);
                 }
                 else
                 {
-                    m_CurrentState = AntState::Wandering;
-                    m_Color = BLACK;
-
-                    float randomAngle = (rand() % 360) * DEG_TO_RAD;
-                    m_Dx = std::cos(randomAngle);
-                    m_Dy = std::sin(randomAngle);
+                    if (m_CarriedFood > 0.0f)
+                    {
+                        m_CurrentState = AntState::ReturningToNest;
+                        m_FoodScentStrength = MAX_SCENT_PAYLOAD;
+                        m_Color = BLUE;
+                    }
+                    else
+                    {
+                        m_CurrentState = AntState::Wandering;
+                        m_Color = BLACK;
+                    }
                 }
             }
         }
@@ -324,33 +351,32 @@ void Ant::HandleWanderingState(double dt)
 
     // --- DROP HOME SCENT & CHECK FOOD COLLISION ---
     m_Grid->AddHomePheromone(m_X, m_Y, HOME_SCENT_DROP_RATE * static_cast<float>(dt));
-    std::vector<GameObject*> nearbyObjects;
-    GetWorld()->GetSpatialGrid()->GetNearby(nearbyObjects, m_X, m_Y, m_SensorDistance);
 
-    for (GameObject* obj : nearbyObjects)
+    thread_local std::vector<Food*> nearbyFood;
+    nearbyFood.clear();
+    GetWorld()->GetSpatialGrid()->GetNearbyType<Food>(nearbyFood, m_X, m_Y, m_SensorDistance);
+
+    for (Food* const foodObj : nearbyFood)
     {
-        if (obj->IsA<Food>())
+        const float dx = m_X - foodObj->GetX();
+        const float dy = m_Y - foodObj->GetY();
+
+        const float distToFoodSq = dx * dx + dy * dy;
+        const float foodRadSq = foodObj->GetRadius() * foodObj->GetRadius();
+
+        if (distToFoodSq <= foodRadSq)
         {
-            Food* foodObj = static_cast<Food*>(obj);
-            float dx = m_X - foodObj->GetX();
-            float dy = m_Y - foodObj->GetY();
+            m_CurrentState = AntState::FoundFood;
+            m_Color = ORANGE;
+            m_HarvestTimer = 0.0f;
 
-            // Are we physically touching the food's radius?
-            if ((dx * dx + dy * dy) <= (foodObj->GetRadius() * foodObj->GetRadius()))
-            {
-                m_CurrentState = AntState::FoundFood;
-                m_Color = ORANGE;
-                m_HarvestTimer = 0.0f;
+            const float dxToNest = m_Grid->GetNestX() - m_X;
+            const float dyToNest = m_Grid->GetNestY() - m_Y;
+            const float angleToNest = std::atan2(dyToNest, dxToNest);
+            m_Dx = std::cos(angleToNest);
+            m_Dy = std::sin(angleToNest);
 
-                // Face the nest while eating
-                const float dxToNest = m_Grid->GetNestX() - m_X;
-                const float dyToNest = m_Grid->GetNestY() - m_Y;
-                const float angleToNest = std::atan2(dyToNest, dxToNest);
-                m_Dx = std::cos(angleToNest);
-                m_Dy = std::sin(angleToNest);
-
-                break; // Stop looking, we found a meal!
-            }
+            break;
         }
     }
 
@@ -452,6 +478,7 @@ void Ant::HandleReturningState(double dt)
         m_Color = BLACK;
         m_Dx *= -1.0f;
         m_Dy *= -1.0f;
+        m_CarriedFood = 0.0f;
         NormalizeDirection();
     }
 
