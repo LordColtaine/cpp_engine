@@ -33,6 +33,18 @@ void Nest::DepositFood(float amount)
     }
 }
 
+float Nest::ConsumeFood(float requestedAmount)
+{
+    if (m_StoredFood <= 0.0f)
+        return 0.0f;
+
+    // Don't let them eat more than what is actually in the vault
+    const float actualEaten = std::min(m_StoredFood, requestedAmount);
+    m_StoredFood -= actualEaten;
+
+    return actualEaten;
+}
+
 bool Nest::CheckCollision(float antX, float antY) const
 {
     const float dx = antX - m_X;

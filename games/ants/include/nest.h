@@ -19,6 +19,7 @@ public:
     bool HasSpatialCollision() const override { return false; }
 
     void DepositFood(float amount);
+    float ConsumeFood(float requestedAmount);
     bool CheckCollision(float antX, float antY) const;
 
 private:

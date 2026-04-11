@@ -15,7 +15,7 @@ enum class AntState
 class Ant : public GameObject
 {
 public:
-    Ant(float startX, float startY, PheromoneGrid* grid, Nest* nest, Color color, float speed);
+    Ant(float startX, float startY, PheromoneGrid* grid, Nest* nest, Color color, float speed, float maxEnergy);
 
     virtual void Update(double dt) override;
     virtual void Draw() const override;
@@ -40,6 +40,9 @@ protected:
     float m_CarriedFood = 0.0f;
     float m_MaxCarryCapacity = 10.0f;
 
+    float m_Energy;
+    float m_MaxEnergy;
+
     Nest* m_Nest = nullptr;
 
     void NormalizeDirection();
@@ -54,7 +57,7 @@ class WorkerAnt : public Ant
 {
 public:
     WorkerAnt(float startX, float startY, PheromoneGrid* grid, Nest* nest)
-        : Ant(startX, startY, grid, nest, BLACK, 80.0f)
+        : Ant(startX, startY, grid, nest, BLACK, 80.0f, 100.f)
     {
     }
 
@@ -66,7 +69,7 @@ class SoldierAnt : public Ant
 {
 public:
     SoldierAnt(float startX, float startY, PheromoneGrid* grid, Nest* nest)
-        : Ant(startX, startY, grid, nest, DARKBLUE, 40.0f)
+        : Ant(startX, startY, grid, nest, DARKBLUE, 40.0f, 200.f)
     {
         m_CurrentState = AntState::Patrol;
     }

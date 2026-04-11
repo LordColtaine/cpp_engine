@@ -48,6 +48,10 @@ namespace
     constexpr int WANDER_TWITCH_CHANCE = 5;
     constexpr int RETURN_TWITCH_CHANCE = 2;
 
+    // Energy
+    constexpr float ENERGY_DRAIN_RATE = 2.0f;
+    constexpr float FOOD_TO_ENERGY_RATIO = 10.0f;
+
     // Generates a random float between - 1.0f and 1.0f
     inline uint32_t FastRand()
     {
@@ -65,10 +69,10 @@ namespace
 // ANT IMPLEMENTATION
 // ==========================================
 
-Ant::Ant(float startX, float startY, PheromoneGrid* grid, Nest* nest, Color color, float speed)
+Ant::Ant(float startX, float startY, PheromoneGrid* grid, Nest* nest, Color color, float speed, float maxEnergy)
     : m_X(startX), m_Y(startY), m_Speed(speed), m_CurrentState(AntState::Wandering), m_Color(color), m_Grid(grid),
       m_Nest(nest), m_HarvestTimer(0.0f), m_SensorDistance(DEFAULT_SENSOR_DISTANCE),
-      m_SensorAngle(DEFAULT_SENSOR_ANGLE), m_FoodScentStrength(0.0f)
+      m_SensorAngle(DEFAULT_SENSOR_ANGLE), m_FoodScentStrength(0.0f), m_MaxEnergy(maxEnergy), m_Energy(maxEnergy)
 {
     m_Dx = GetRandomSymmetric();
     m_Dy = GetRandomSymmetric();
@@ -77,6 +81,20 @@ Ant::Ant(float startX, float startY, PheromoneGrid* grid, Nest* nest, Color colo
 
 void Ant::Update(double dt)
 {
+    m_Energy -= ENERGY_DRAIN_RATE * static_cast<float>(dt);
+
+    if (m_Energy <= 0.0f)
+    {
+        // The ant died! Calculate the mass of its body + backpack
+        const float corpseMass = 2.0f + m_CarriedFood;
+        const float radius = std::sqrt(corpseMass / M_PI);
+
+        // Spawn a food crumb where it died
+        GetWorld()->NewGameObject<Food>(m_X, m_Y, radius);
+
+        MarkForKill();
+        return; // Skip the rest of the update so dead ants don't move
+    }
     switch (m_CurrentState)
     {
     case AntState::Wandering:
@@ -484,6 +502,14 @@ void Ant::HandleReturningState(double dt)
     if (m_Nest->CheckCollision(m_X, m_Y))
     {
         m_Nest->DepositFood(m_CarriedFood);
+
+        const float energyNeeded = m_MaxEnergy - m_Energy;
+        if (energyNeeded > 0.0f)
+        {
+            const float foodNeeded = energyNeeded / FOOD_TO_ENERGY_RATIO;
+            const float foodEaten = m_Nest->ConsumeFood(foodNeeded);
+            m_Energy += foodEaten * FOOD_TO_ENERGY_RATIO;
+        }
 
         m_CurrentState = AntState::Wandering;
         m_Color = BLACK;
