@@ -2,6 +2,9 @@
 
 A high-performance, multithreaded 2D engine built from scratch in C++ to simulate decentralized swarm intelligence and cellular automata.
 
+
+![Ant Swarm Demo](assets/ants.gif)
+
 ## 🚀 Technical Features
 * **Custom Engine Architecture:** Built in C++17 with strict adherence to Data-Oriented Design and cache-friendly memory layouts.
 * **Lock-Free Multithreading:** Utilizes a custom Thread Pool and Job System to process grid updates and entity logic simultaneously across CPU cores.
