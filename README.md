@@ -1,6 +1,8 @@
 # C++ Multithreaded Agent-Based Swarm Simulator
 
 A high-performance, multithreaded 2D engine built from scratch in C++ to simulate decentralized swarm intelligence and cellular automata.
+
+
 ![Ant Swarm Demo](assets/ants.gif)
 
 ## 🚀 Technical Features
