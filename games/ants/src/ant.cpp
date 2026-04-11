@@ -49,7 +49,16 @@ namespace
     constexpr int RETURN_TWITCH_CHANCE = 2;
 
     // Generates a random float between - 1.0f and 1.0f
-    inline float GetRandomSymmetric() { return (rand() % 100 / 50.0f) - 1.0f; }
+    inline uint32_t FastRand()
+    {
+        static uint32_t state = 123456789; // Starting seed
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        return state;
+    }
+
+    inline float GetRandomSymmetric() { return (FastRand() % 100 / 50.0f) - 1.0f; }
 } // namespace
 
 // ==========================================
@@ -237,7 +246,7 @@ void SoldierAnt::Update(double dt)
         m_Dx = std::cos(angleToNest);
         m_Dy = std::sin(angleToNest);
     }
-    else if (rand() % 100 < SOLDIER_WANDER_CHANCE)
+    else if (FastRand() % 100 < SOLDIER_WANDER_CHANCE)
     {
         m_Dx += GetRandomSymmetric();
         m_Dy += GetRandomSymmetric();
@@ -322,7 +331,7 @@ void Ant::HandleWanderingState(double dt)
 
             if (homeForward > homeLeft && homeForward > homeRight)
             {
-                if (rand() % 2 == 0)
+                if (FastRand() % 2 == 0)
                 {
                     currentAngle += turnSpeed;
                 }
@@ -381,7 +390,7 @@ void Ant::HandleWanderingState(double dt)
     }
 
     // Twitching and Movement
-    if (rand() % 100 < WANDER_TWITCH_CHANCE)
+    if (FastRand() % 100 < WANDER_TWITCH_CHANCE)
     {
         m_Dx += GetRandomSymmetric();
         m_Dy += GetRandomSymmetric();
@@ -482,7 +491,7 @@ void Ant::HandleReturningState(double dt)
         NormalizeDirection();
     }
 
-    if (rand() % 100 < RETURN_TWITCH_CHANCE)
+    if (FastRand() % 100 < RETURN_TWITCH_CHANCE)
     {
         m_Dx += GetRandomSymmetric();
         m_Dy += GetRandomSymmetric();

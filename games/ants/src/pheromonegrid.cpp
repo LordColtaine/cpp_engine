@@ -174,7 +174,13 @@ float PheromoneGrid::GetFoodPheromone(float worldX, float worldY) const
 
 void PheromoneGrid::DrawDebug() const
 {
-    UpdateTexture(m_GridTexture, m_PixelData);
+    const double currentTime = GetTime();
+    if (currentTime - m_LastTextureUpdateTime >= (1.0 / 30.0))
+    {
+        UpdateTexture(m_GridTexture, m_PixelData);
+        const_cast<PheromoneGrid*>(this)->m_LastTextureUpdateTime = currentTime;
+    }
+
     DrawTextureEx(m_GridTexture, {0.0f, 0.0f}, 0.0f, static_cast<float>(m_CellSize), WHITE);
     DrawCircle(static_cast<int>(m_Nest.m_X), static_cast<int>(m_Nest.m_Y), m_Nest.m_Radius, DARKBROWN);
 }

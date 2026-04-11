@@ -71,5 +71,7 @@ private:
 
     Texture2D m_GridTexture;
     Color* m_PixelData;
+    double m_LastTextureUpdateTime = 0.0;
+
     int GetIndex(float worldX, float worldY) const;
 };
