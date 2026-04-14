@@ -51,6 +51,7 @@ namespace
     // Energy
     constexpr float ENERGY_DRAIN_RATE = 2.0f;
     constexpr float FOOD_TO_ENERGY_RATIO = 10.0f;
+    constexpr float HUNGER_THRESHOLD_PCT = 0.3f;
 
     // Generates a random float between - 1.0f and 1.0f
     inline uint32_t FastRand()
@@ -74,6 +75,9 @@ Ant::Ant(float startX, float startY, PheromoneGrid* grid, Nest* nest, Color colo
       m_Nest(nest), m_HarvestTimer(0.0f), m_SensorDistance(DEFAULT_SENSOR_DISTANCE),
       m_SensorAngle(DEFAULT_SENSOR_ANGLE), m_FoodScentStrength(0.0f), m_MaxEnergy(maxEnergy), m_Energy(maxEnergy)
 {
+    m_DefaultColor = color;
+    m_DefaultState = m_CurrentState;
+
     m_Dx = GetRandomSymmetric();
     m_Dy = GetRandomSymmetric();
     NormalizeDirection();
@@ -81,20 +85,15 @@ Ant::Ant(float startX, float startY, PheromoneGrid* grid, Nest* nest, Color colo
 
 void Ant::Update(double dt)
 {
-    m_Energy -= ENERGY_DRAIN_RATE * static_cast<float>(dt);
+    if (UpdateEnergy(dt))
+        return;
 
-    if (m_Energy <= 0.0f)
+    if (m_CurrentState == AntState::Wandering && m_Energy < (m_MaxEnergy * HUNGER_THRESHOLD_PCT) && m_Color.r != RED.r)
     {
-        // The ant died! Calculate the mass of its body + backpack
-        const float corpseMass = 2.0f + m_CarriedFood;
-        const float radius = std::sqrt(corpseMass / M_PI);
-
-        // Spawn a food crumb where it died
-        GetWorld()->NewGameObject<Food>(m_X, m_Y, radius);
-
-        MarkForKill();
-        return; // Skip the rest of the update so dead ants don't move
+        m_CurrentState = AntState::ReturningToNest;
+        m_Color = RED;
     }
+
     switch (m_CurrentState)
     {
     case AntState::Wandering:
@@ -106,7 +105,6 @@ void Ant::Update(double dt)
         }
         break;
     }
-
     case AntState::ReturningToNest:
     {
         if (m_Grid != nullptr)
@@ -116,89 +114,13 @@ void Ant::Update(double dt)
         }
         break;
     }
-
     case AntState::FoundFood:
     {
-        if (m_Grid != nullptr)
-        {
-            thread_local std::vector<Food*> nearbyFood;
-            nearbyFood.clear();
-            GetWorld()->GetSpatialGrid()->GetNearbyType<Food>(nearbyFood, m_X, m_Y, m_SensorDistance);
-
-            bool isTouchingFood = false;
-            Food* closestFood = nullptr;
-            float closestDistSq = 999999.0f;
-
-            for (Food* const foodObj : nearbyFood)
-            {
-                const float dx = m_X - foodObj->GetX();
-                const float dy = m_Y - foodObj->GetY();
-                const float sqDist = dx * dx + dy * dy;
-                const float foodRadius = foodObj->GetRadius();
-
-                // Calculate movement of ant so small food particles aren't missed.
-                const float stride = m_Speed * static_cast<float>(dt);
-                const float hitRadius = foodRadius + stride;
-
-                if (sqDist <= (hitRadius * hitRadius))
-                {
-                    const float spaceLeft = m_MaxCarryCapacity - m_CarriedFood;
-                    const float requestedBite = std::min(HARVEST_RATE * static_cast<float>(dt), spaceLeft);
-                    const float actualBite = foodObj->Harvest(requestedBite);
-
-                    if (actualBite > 0.0f)
-                    {
-                        m_CarriedFood += actualBite;
-                        isTouchingFood = true;
-
-                        if (m_CarriedFood >= (m_MaxCarryCapacity - 0.01f))
-                        {
-                            m_CarriedFood = m_MaxCarryCapacity;
-                            m_CurrentState = AntState::ReturningToNest;
-                            m_FoodScentStrength = MAX_SCENT_PAYLOAD;
-                            m_Color = BLUE;
-                        }
-                    }
-                    break;
-                }
-
-                // Keep track of closest.
-                if (sqDist < closestDistSq)
-                {
-                    closestDistSq = sqDist;
-                    closestFood = foodObj;
-                }
-            }
-
-            if (!isTouchingFood)
-            {
-                if (closestFood != nullptr)
-                {
-                    const float dx = m_X - closestFood->GetX();
-                    const float dy = m_Y - closestFood->GetY();
-                    const float dist = std::sqrt(closestDistSq);
-
-                    m_X -= (dx / dist) * m_Speed * static_cast<float>(dt);
-                    m_Y -= (dy / dist) * m_Speed * static_cast<float>(dt);
-                }
-                else
-                {
-                    if (m_CarriedFood > 0.0f)
-                    {
-                        m_CurrentState = AntState::ReturningToNest;
-                        m_FoodScentStrength = MAX_SCENT_PAYLOAD;
-                        m_Color = BLUE;
-                    }
-                    else
-                    {
-                        m_CurrentState = AntState::Wandering;
-                        m_Color = BLACK;
-                    }
-                }
-            }
-        }
+        HandleFoundFoodState(dt);
+        break;
     }
-    break;
+    case AntState::Patrol:
+        break;
     }
 }
 
@@ -249,8 +171,28 @@ float Ant::SenseRally(float sensorX, float sensorY)
 
 void SoldierAnt::Update(double dt)
 {
-    if (m_Grid == nullptr)
+    if (m_Grid == nullptr || m_Nest == nullptr)
+        return;
+
+    if (UpdateEnergy(dt))
+        return;
+
+    if (m_CurrentState == AntState::Patrol && m_Energy < (m_MaxEnergy * HUNGER_THRESHOLD_PCT) && m_Color.r != RED.r)
     {
+        m_CurrentState = AntState::ReturningToNest;
+        m_Color = RED;
+    }
+
+    if (m_CurrentState == AntState::ReturningToNest)
+    {
+        HandleReturningState(dt);
+        MoveAndBounce(dt);
+        return;
+    }
+
+    if (m_CurrentState == AntState::FoundFood)
+    {
+        HandleFoundFoodState(dt);
         return;
     }
 
@@ -418,6 +360,20 @@ void Ant::HandleWanderingState(double dt)
 
 void Ant::HandleReturningState(double dt)
 {
+    if (m_CarriedFood < m_MaxCarryCapacity)
+    {
+        thread_local std::vector<Food*> nearbyFood;
+        nearbyFood.clear();
+        GetWorld()->GetSpatialGrid()->GetNearbyType<Food>(nearbyFood, m_X, m_Y, m_SensorDistance);
+
+        if (!nearbyFood.empty())
+        {
+            m_CurrentState = AntState::FoundFood;
+            m_Color = ORANGE;
+            return; // Abort steering home this frame; we are grabbing a snack!
+        }
+    }
+
     // Front Sensor Coordinates
     const float frontX = m_X + m_Dx * m_SensorDistance;
     const float frontY = m_Y + m_Dy * m_SensorDistance;
@@ -490,13 +446,16 @@ void Ant::HandleReturningState(double dt)
     m_Dx = std::cos(currentAngle);
     m_Dy = std::sin(currentAngle);
 
-    // Food pheromone degrades every time it is dropped.
-    m_Grid->AddFoodPheromone(m_X, m_Y, m_FoodScentStrength);
-    m_FoodScentStrength -= PAYLOAD_DRAIN_RATE * static_cast<float>(dt);
-
-    if (m_FoodScentStrength < MIN_SCENT_PAYLOAD)
+    if (m_CarriedFood > 0.0f)
     {
-        m_FoodScentStrength = MIN_SCENT_PAYLOAD;
+        // Food pheromone degrades every time it is dropped.
+        m_Grid->AddFoodPheromone(m_X, m_Y, m_FoodScentStrength);
+        m_FoodScentStrength -= PAYLOAD_DRAIN_RATE * static_cast<float>(dt);
+
+        if (m_FoodScentStrength < MIN_SCENT_PAYLOAD)
+        {
+            m_FoodScentStrength = MIN_SCENT_PAYLOAD;
+        }
     }
 
     if (m_Nest->CheckCollision(m_X, m_Y))
@@ -511,8 +470,18 @@ void Ant::HandleReturningState(double dt)
             m_Energy += foodEaten * FOOD_TO_ENERGY_RATIO;
         }
 
-        m_CurrentState = AntState::Wandering;
-        m_Color = BLACK;
+        if (m_Energy >= (m_MaxEnergy * HUNGER_THRESHOLD_PCT))
+        {
+            m_CurrentState = m_DefaultState;
+            m_Color = m_DefaultColor;
+        }
+        else
+        {
+            // Nest is empty
+            m_CurrentState = AntState::Wandering;
+            m_Color = RED;
+        }
+
         m_Dx *= -1.0f;
         m_Dy *= -1.0f;
         m_CarriedFood = 0.0f;
@@ -524,6 +493,86 @@ void Ant::HandleReturningState(double dt)
         m_Dx += GetRandomSymmetric();
         m_Dy += GetRandomSymmetric();
         NormalizeDirection();
+    }
+}
+
+void Ant::HandleFoundFoodState(double dt)
+{
+    if (m_Grid == nullptr)
+        return;
+
+    thread_local std::vector<Food*> nearbyFood;
+    nearbyFood.clear();
+    GetWorld()->GetSpatialGrid()->GetNearbyType<Food>(nearbyFood, m_X, m_Y, m_SensorDistance);
+
+    bool isTouchingFood = false;
+    Food* closestFood = nullptr;
+    float closestDistSq = 999999.0f;
+
+    for (Food* const foodObj : nearbyFood)
+    {
+        const float dx = m_X - foodObj->GetX();
+        const float dy = m_Y - foodObj->GetY();
+        const float sqDist = dx * dx + dy * dy;
+        const float foodRadius = foodObj->GetRadius();
+
+        const float stride = m_Speed * static_cast<float>(dt);
+        const float hitRadius = foodRadius + stride;
+
+        if (sqDist <= (hitRadius * hitRadius))
+        {
+            const float spaceLeft = m_MaxCarryCapacity - m_CarriedFood;
+            const float requestedBite = std::min(HARVEST_RATE * static_cast<float>(dt), spaceLeft);
+            const float actualBite = foodObj->Harvest(requestedBite);
+
+            if (actualBite > 0.0f)
+            {
+                m_CarriedFood += actualBite;
+                isTouchingFood = true;
+
+                if (m_CarriedFood >= (m_MaxCarryCapacity - 0.01f))
+                {
+                    m_CarriedFood = m_MaxCarryCapacity;
+                    m_CurrentState = AntState::ReturningToNest;
+                    m_FoodScentStrength = MAX_SCENT_PAYLOAD;
+                    m_Color = BLUE;
+                }
+            }
+            break;
+        }
+
+        if (sqDist < closestDistSq)
+        {
+            closestDistSq = sqDist;
+            closestFood = foodObj;
+        }
+    }
+
+    if (!isTouchingFood)
+    {
+        if (closestFood != nullptr)
+        {
+            const float dx = m_X - closestFood->GetX();
+            const float dy = m_Y - closestFood->GetY();
+            const float dist = std::sqrt(closestDistSq);
+
+            m_X -= (dx / dist) * m_Speed * static_cast<float>(dt);
+            m_Y -= (dy / dist) * m_Speed * static_cast<float>(dt);
+        }
+        else
+        {
+            if (m_CarriedFood > 0.0f)
+            {
+                m_CurrentState = AntState::ReturningToNest;
+                m_FoodScentStrength = MAX_SCENT_PAYLOAD;
+                m_Color = BLUE;
+            }
+            else
+            {
+                m_CurrentState = m_DefaultState; // Use default so Soldiers go back to Patrol
+                m_Color = m_DefaultColor;
+            }
+        }
     }
 }
 
@@ -570,4 +619,42 @@ void Ant::MoveAndBounce(double dt)
         m_Y = worldHeight - WORLD_BOUNDARY_MARGIN;
         m_Dy *= -1.0f;
     }
+}
+
+bool Ant::UpdateEnergy(double dt)
+{
+    m_Energy -= ENERGY_DRAIN_RATE * static_cast<float>(dt);
+
+    // Snacking
+    if (m_Energy < m_MaxEnergy * HUNGER_THRESHOLD_PCT && m_CarriedFood > 0.0f)
+    {
+        const float energyNeeded = m_MaxEnergy - m_Energy;
+        const float foodNeeded = energyNeeded / FOOD_TO_ENERGY_RATIO;
+        const float snack = std::min(m_CarriedFood, foodNeeded);
+
+        m_CarriedFood -= snack;
+        m_Energy += snack * FOOD_TO_ENERGY_RATIO;
+
+        if (m_CarriedFood <= 0.0f && m_CurrentState == AntState::ReturningToNest)
+        {
+            m_CurrentState = m_DefaultState;
+            m_Color = m_DefaultColor;
+            m_Dx *= -1.0f;
+            m_Dy *= -1.0f;
+            NormalizeDirection();
+        }
+    }
+
+    // Death
+    if (m_Energy <= 0.0f)
+    {
+        // Soldiers drop 4.0f, Workers drop 2.0f
+        const float corpseMass = (m_MaxEnergy > 150.0f ? 4.0f : 2.0f) + m_CarriedFood;
+        const float radius = std::sqrt(corpseMass / M_PI);
+        GetWorld()->NewGameObject<Food>(m_X, m_Y, radius);
+        MarkForKill();
+        return true; // The ant is dead
+    }
+
+    return false; // The ant is still alive
 }

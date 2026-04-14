@@ -10,7 +10,7 @@ Nest::Nest(float x, float y, float radius, PheromoneGrid* grid)
 
 void Nest::Update(double dt)
 {
-    while (m_StoredFood >= m_FoodCostPerAnt)
+    while (m_StoredFood >= (m_FoodCostPerAnt + m_FoodReserve))
     {
         m_StoredFood -= m_FoodCostPerAnt;
 

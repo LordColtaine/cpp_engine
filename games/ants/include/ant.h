@@ -43,6 +43,9 @@ protected:
     float m_Energy;
     float m_MaxEnergy;
 
+    Color m_DefaultColor;
+    AntState m_DefaultState;
+
     Nest* m_Nest = nullptr;
 
     void NormalizeDirection();
@@ -50,7 +53,9 @@ protected:
     float SenseRally(float sensorX, float sensorY);
     void HandleWanderingState(double dt);
     void HandleReturningState(double dt);
+    void HandleFoundFoodState(double dt);
     void MoveAndBounce(double dt);
+    bool UpdateEnergy(double dt);
 };
 
 class WorkerAnt : public Ant
@@ -72,6 +77,8 @@ public:
         : Ant(startX, startY, grid, nest, DARKBLUE, 40.0f, 200.f)
     {
         m_CurrentState = AntState::Patrol;
+        m_DefaultState = AntState::Patrol;
+        m_DefaultColor = m_Color;
     }
 
     size_t GetMemorySize() const override { return sizeof(*this); }

@@ -26,6 +26,7 @@ private:
     float m_X, m_Y;
     float m_Radius;
     float m_StoredFood;
+    const float m_FoodReserve = 500.0f;
 
     PheromoneGrid* m_Grid;
     const float m_FoodCostPerAnt = 50.0f;
