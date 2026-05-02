@@ -1,6 +1,7 @@
 #include "pheromonegrid.h"
 
 #include "logger/logger.h"
+#include "logger/profiler.h"
 #include <algorithm>
 #include <iostream>
 #include <thread>
@@ -11,6 +12,7 @@ namespace
     constexpr float HOME_EVAP_RATE = 0.1f;
     constexpr float FOOD_EVAP_RATE = 0.02f;
     constexpr float RALLY_EVAP_RATE = 0.2f;
+    constexpr float FEAR_EVAP_RATE = 0.5f;
 
     constexpr float SELF_BLUR_FACTOR = 0.6f;
     constexpr float ADJ_BLUR_FACTOR = 0.1f;
@@ -68,9 +70,11 @@ void PheromoneGrid::PrepareUpdate() { m_OldGrid = m_Grid; }
 
 void PheromoneGrid::UpdateChunk(double dt, int startY, int endY)
 {
+    PROFILE_FUNCTION();
     const float homeEvap = 1.0f - (HOME_EVAP_RATE * static_cast<float>(dt));
     const float foodEvap = 1.0f - (FOOD_EVAP_RATE * static_cast<float>(dt));
     const float rallyEvap = 1.0f - (RALLY_EVAP_RATE * static_cast<float>(dt));
+    const float fearEvap = 1.0f - (FEAR_EVAP_RATE * static_cast<float>(dt));
     const float flatDecay = 2.0f * static_cast<float>(dt);
 
     startY = std::max(1, startY);
@@ -106,9 +110,15 @@ void PheromoneGrid::UpdateChunk(double dt, int startY, int endY)
                 m_OldGrid[i + 1].m_RallyScent * ADJ_BLUR_FACTOR + m_OldGrid[i - m_Cols].m_RallyScent * ADJ_BLUR_FACTOR +
                 m_OldGrid[i + m_Cols].m_RallyScent * ADJ_BLUR_FACTOR;
 
+            const float blurredFear =
+                m_OldGrid[i].m_FearScent * SELF_BLUR_FACTOR + m_OldGrid[i - 1].m_FearScent * ADJ_BLUR_FACTOR +
+                m_OldGrid[i + 1].m_FearScent * ADJ_BLUR_FACTOR + m_OldGrid[i - m_Cols].m_FearScent * ADJ_BLUR_FACTOR +
+                m_OldGrid[i + m_Cols].m_FearScent * ADJ_BLUR_FACTOR;
+
             m_Grid[i].m_HomeScent = (blurredHome * homeEvap) - flatDecay;
             m_Grid[i].m_FoodScent = (blurredFood * foodEvap) - flatDecay;
             m_Grid[i].m_RallyScent = (blurredRally * rallyEvap) - flatDecay;
+            m_Grid[i].m_FearScent = (blurredFear * fearEvap) - flatDecay;
 
             if (m_Grid[i].m_HomeScent < 0.01f)
                 m_Grid[i].m_HomeScent = 0.0f;
@@ -116,6 +126,8 @@ void PheromoneGrid::UpdateChunk(double dt, int startY, int endY)
                 m_Grid[i].m_FoodScent = 0.0f;
             if (m_Grid[i].m_RallyScent < 0.01f)
                 m_Grid[i].m_RallyScent = 0.0f;
+            if (m_Grid[i].m_FearScent < 0.01f)
+                m_Grid[i].m_FearScent = 0.0f;
 
             const float food = std::min(1.0f, (m_Grid[i].m_FoodScent * VISUAL_BOOST_FOOD) / MAX_SCENT_VALUE);
             const float home = std::min(1.0f, (m_Grid[i].m_HomeScent * VISUAL_BOOST_HOME) / MAX_SCENT_VALUE);
@@ -162,6 +174,35 @@ void PheromoneGrid::AddFoodPheromone(float worldX, float worldY, float amount)
     m_Grid[index].m_FoodScent = std::max(m_Grid[index].m_FoodScent, amount);
 }
 
+void PheromoneGrid::AddFearRadius(float worldX, float worldY, float radius, float amount)
+{
+    const int gridX = static_cast<int>(worldX) / m_CellSize;
+    const int gridY = static_cast<int>(worldY) / m_CellSize;
+    const int gridRadius = static_cast<int>(radius) / m_CellSize;
+
+    for (int dy = -gridRadius; dy <= gridRadius; ++dy)
+    {
+        for (int dx = -gridRadius; dx <= gridRadius; ++dx)
+        {
+            if (dx * dx + dy * dy <= gridRadius * gridRadius)
+            {
+                const int cx = gridX + dx;
+                const int cy = gridY + dy;
+
+                if (cx >= 0 && cx < m_Cols && cy >= 0 && cy < m_Rows)
+                {
+                    const int index = cy * m_Cols + cx;
+                    m_Grid[index].m_FearScent += amount;
+                    if (m_Grid[index].m_FearScent > MAX_SCENT_VALUE)
+                    {
+                        m_Grid[index].m_FearScent = MAX_SCENT_VALUE;
+                    }
+                }
+            }
+        }
+    }
+}
+
 float PheromoneGrid::GetHomePheromone(float worldX, float worldY) const
 {
     return m_Grid[GetIndex(worldX, worldY)].m_HomeScent;
@@ -170,6 +211,11 @@ float PheromoneGrid::GetHomePheromone(float worldX, float worldY) const
 float PheromoneGrid::GetFoodPheromone(float worldX, float worldY) const
 {
     return m_Grid[GetIndex(worldX, worldY)].m_FoodScent;
+}
+
+float PheromoneGrid::GetFearPheromone(float worldX, float worldY) const
+{
+    return m_Grid[GetIndex(worldX, worldY)].m_FearScent;
 }
 
 void PheromoneGrid::DrawDebug() const

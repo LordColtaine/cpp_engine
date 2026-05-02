@@ -3,6 +3,7 @@
 #include "core/spatialgrid.h"
 #include "core/world.h"
 #include "food.h"
+#include "logger/profiler.h"
 #include <cmath>
 #include <cstdlib>
 
@@ -85,8 +86,26 @@ Ant::Ant(float startX, float startY, PheromoneGrid* grid, Nest* nest, Color colo
 
 void Ant::Update(double dt)
 {
+    PROFILE_FUNCTION();
     if (UpdateEnergy(dt))
         return;
+
+    // --- FEAR OVERRIDE ---
+    const float localFear = m_Grid->GetFearPheromone(m_X, m_Y);
+    if (localFear > 1.0f)
+    {
+        m_PanicTimer = 2.0f;
+
+        if (m_CurrentState != AntState::Fleeing)
+        {
+            m_CurrentState = AntState::Fleeing;
+            m_Color = WHITE;
+
+            m_Dx *= -1.0f;
+            m_Dy *= -1.0f;
+            NormalizeDirection();
+        }
+    }
 
     if (m_CurrentState == AntState::Wandering && m_Energy < (m_MaxEnergy * HUNGER_THRESHOLD_PCT) && m_Color.r != RED.r)
     {
@@ -121,6 +140,27 @@ void Ant::Update(double dt)
     }
     case AntState::Patrol:
         break;
+
+    case AntState::Fleeing:
+    {
+        m_PanicTimer -= static_cast<float>(dt);
+        if (m_PanicTimer <= 0.0f)
+        {
+            m_CurrentState = m_DefaultState;
+            m_Color = m_DefaultColor;
+        }
+
+        // Add a slight wobble so they don't run in a perfectly straight line
+        if (FastRand() % 100 < 5)
+        {
+            m_Dx += GetRandomSymmetric();
+            m_Dy += GetRandomSymmetric();
+            NormalizeDirection();
+        }
+
+        MoveAndBounce(dt);
+        break;
+    }
     }
 }
 
@@ -323,7 +363,7 @@ void Ant::HandleWanderingState(double dt)
 
     thread_local std::vector<Food*> nearbyFood;
     nearbyFood.clear();
-    GetWorld()->GetSpatialGrid()->GetNearbyType<Food>(nearbyFood, m_X, m_Y, m_SensorDistance);
+    GetWorld()->GetSpatialGrid()->GetNearbyType<Food>(nearbyFood, m_X, m_Y, m_SensorDistance, CollisionLayer::Layer2);
 
     for (Food* const foodObj : nearbyFood)
     {
@@ -364,13 +404,14 @@ void Ant::HandleReturningState(double dt)
     {
         thread_local std::vector<Food*> nearbyFood;
         nearbyFood.clear();
-        GetWorld()->GetSpatialGrid()->GetNearbyType<Food>(nearbyFood, m_X, m_Y, m_SensorDistance);
+        GetWorld()->GetSpatialGrid()->GetNearbyType<Food>(nearbyFood, m_X, m_Y, m_SensorDistance,
+                                                          CollisionLayer::Layer2);
 
         if (!nearbyFood.empty())
         {
             m_CurrentState = AntState::FoundFood;
             m_Color = ORANGE;
-            return; // Abort steering home this frame; we are grabbing a snack!
+            return;
         }
     }
 
@@ -503,7 +544,7 @@ void Ant::HandleFoundFoodState(double dt)
 
     thread_local std::vector<Food*> nearbyFood;
     nearbyFood.clear();
-    GetWorld()->GetSpatialGrid()->GetNearbyType<Food>(nearbyFood, m_X, m_Y, m_SensorDistance);
+    GetWorld()->GetSpatialGrid()->GetNearbyType<Food>(nearbyFood, m_X, m_Y, m_SensorDistance, CollisionLayer::Layer2);
 
     bool isTouchingFood = false;
     Food* closestFood = nullptr;
@@ -569,7 +610,7 @@ void Ant::HandleFoundFoodState(double dt)
             }
             else
             {
-                m_CurrentState = m_DefaultState; // Use default so Soldiers go back to Patrol
+                m_CurrentState = m_DefaultState;
                 m_Color = m_DefaultColor;
             }
         }

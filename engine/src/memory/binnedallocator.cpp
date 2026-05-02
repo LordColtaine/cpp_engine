@@ -16,22 +16,18 @@ void* BinnedAllocator::Allocate(const size_t size)
     std::string sizeStr = std::to_string(size);
     if (size <= 32)
     {
-        LOG_INFO("Allocating " + sizeStr + " in 32 byte bin.");
         return m_Bin32.Allocate();
     }
     else if (size <= 64)
     {
-        LOG_INFO("Allocating " + sizeStr + " in 64 byte bin.");
         return m_Bin64.Allocate();
     }
     else if (size <= 128)
     {
-        LOG_INFO("Allocating " + sizeStr + " in 128 byte bin.");
         return m_Bin128.Allocate();
     }
     else if (size <= 256)
     {
-        LOG_INFO("Allocating " + sizeStr + " in 256 byte bin.");
         return m_Bin256.Allocate();
     }
     else

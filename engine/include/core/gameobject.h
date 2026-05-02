@@ -2,6 +2,15 @@
 #include "core/typeid.h"
 #include <cstddef>
 
+enum class CollisionLayer
+{
+    Layer0 = 0, // "Default"
+    Layer1,
+    Layer2,
+    Layer3,
+    Count
+};
+
 class World;
 class GameObject
 {
@@ -13,6 +22,9 @@ public:
 
     virtual ~GameObject() = default;
     virtual bool HasSpatialCollision() const { return true; }
+    virtual void Initialize() {}
+    virtual void Uninitialize() {}
+    virtual CollisionLayer GetLayer() const { return CollisionLayer::Layer0; }
 
     template <typename T> bool IsA() const { return GetInstanceTypeID() == GetTypeID<T>(); }
 

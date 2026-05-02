@@ -22,6 +22,7 @@ set(ENGINE_SOURCES
     engine/src/core/threadpool.cpp
     engine/src/core/spatialgrid.cpp
     engine/src/logger/logger.cpp
+    engine/src/behaviour/behaviourtree.cpp
     
     engine/include/memory/memorypool.h
     engine/include/memory/binnedallocator.h
@@ -31,6 +32,9 @@ set(ENGINE_SOURCES
     engine/include/core/spatialgrid.h
     engine/include/core/typeid.h
     engine/include/logger/logger.h
+    engine/include/logger/profiler.h
+    engine/include/behaviour/behaviourtree.h
+    engine/include/behaviour/btagent.h
 )
 
 add_library(core_engine STATIC ${ENGINE_SOURCES})
@@ -42,11 +46,14 @@ set(GAME_ANTS_SOURCES
     games/ants/src/ant.cpp
     games/ants/src/pheromonegrid.cpp
     games/ants/src/nest.cpp
+    games/ants/src/predator_nodes.cpp
     
     games/ants/include/ant.h
     games/ants/include/pheromonegrid.h
     games/ants/include/food.h
     games/ants/include/nest.h
+    games/ants/include/predator.h
+    games/ants/include/predator_nodes.h
 )
 
 add_executable(game_ants ${GAME_ANTS_SOURCES})

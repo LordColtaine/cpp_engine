@@ -28,6 +28,7 @@ public:
 
         T* object = new (memory) T(std::forward<Args>(args)...);
         object->SetWorld(this);
+        object->Initialize();
         m_Objects.push_back(object);
         return object;
     }
@@ -36,6 +37,7 @@ public:
     void Draw() const;
 
     ThreadPool& GetThreadPool() { return m_ThreadPool; }
+    BinnedAllocator* GetAllocator() { return &m_MemoryManager; }
 
     SpatialGrid* GetSpatialGrid() const { return m_SpatialGrid; }
 

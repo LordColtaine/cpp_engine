@@ -1,9 +1,10 @@
 #include "logger/logger.h"
+#include <cstring>
 #include <iostream>
 
 void Logger::Init(const std::string& filepath)
 {
-    if (m_IsRunning)
+    if (m_IsRunning.load(std::memory_order_relaxed))
         return;
 
     m_File.open(filepath, std::ios::out | std::ios::app);
@@ -13,29 +14,24 @@ void Logger::Init(const std::string& filepath)
         return;
     }
 
-    m_IsRunning = true;
+    m_IsRunning.store(true, std::memory_order_relaxed);
     m_WorkerThread = std::thread(&Logger::ProcessQueue, this);
 
-    LOG_INFO("--- ENGINE STARTED ---");
+    LOG_INFO("--- ENGINE STARTED (LOCK-FREE I/O) ---");
 }
 
 void Logger::Shutdown()
 {
-    if (!m_IsRunning)
+    if (!m_IsRunning.load(std::memory_order_relaxed))
         return;
 
     LOG_INFO("--- ENGINE SHUTTING DOWN ---");
 
-    {
-        std::lock_guard<std::mutex> lock(m_QueueMutex);
-        m_IsRunning = false;
-    }
-
-    m_ConditionVariable.notify_one(); // Wake the thread up one last time
+    m_IsRunning.store(false, std::memory_order_relaxed);
 
     if (m_WorkerThread.joinable())
     {
-        m_WorkerThread.join(); // Wait for it to finish writing remaining logs
+        m_WorkerThread.join();
     }
 
     if (m_File.is_open())
@@ -46,7 +42,7 @@ void Logger::Shutdown()
 
 void Logger::Log(LogLevel level, const std::string& message)
 {
-    if (!m_IsRunning)
+    if (!m_IsRunning.load(std::memory_order_relaxed))
         return;
 
     std::string prefix;
@@ -63,44 +59,32 @@ void Logger::Log(LogLevel level, const std::string& message)
         break;
     }
 
-    const std::string formattedMessage = prefix + message + "\n";
+    const size_t currentWrite = m_WriteIndex.fetch_add(1, std::memory_order_relaxed);
+    const size_t index = currentWrite & (RING_SIZE - 1);
 
-    // Lock the queue, push the message, unlock, and tell the background thread to wake up
-    {
-        std::lock_guard<std::mutex> lock(m_QueueMutex);
-        m_LogQueue.push(formattedMessage);
-    }
-    m_ConditionVariable.notify_one();
+    snprintf(m_RingBuffer[index].message, sizeof(LogEntry::message), "%s%s\n", prefix.c_str(), message.c_str());
+    m_RingBuffer[index].isReady.store(true, std::memory_order_release);
 }
 
 void Logger::ProcessQueue()
 {
-    while (true)
+    while (m_IsRunning.load(std::memory_order_relaxed) ||
+           m_ReadIndex.load(std::memory_order_relaxed) < m_WriteIndex.load(std::memory_order_relaxed))
     {
-        std::string currentMessage;
+        const size_t index = m_ReadIndex.load(std::memory_order_relaxed) & (RING_SIZE - 1);
 
+        if (m_RingBuffer[index].isReady.load(std::memory_order_acquire))
         {
-            // The thread goes to sleep here until notified.
-            // It uses practically 0% CPU while sleeping.
-            std::unique_lock<std::mutex> lock(m_QueueMutex);
-            m_ConditionVariable.wait(lock, [this] { return !m_LogQueue.empty() || !m_IsRunning; });
+            m_File << m_RingBuffer[index].message;
 
-            if (!m_IsRunning && m_LogQueue.empty())
-            {
-                break; // Exit the thread completely
-            }
-
-            currentMessage = m_LogQueue.front();
-            m_LogQueue.pop();
-        } // The mutex unlocks here so the game loop can keep pushing
-
-        // Write to the physical disk AFTER dropping the lock
-        if (m_File.is_open())
+            m_RingBuffer[index].isReady.store(false, std::memory_order_relaxed);
+            m_ReadIndex.fetch_add(1, std::memory_order_relaxed);
+        }
+        else
         {
-            m_File << currentMessage;
-            // Note: In a production engine, you wouldn't flush() every single line
-            // as it's slow, but for debugging crashes, it ensures the last line is saved.
-            m_File.flush();
+            std::this_thread::yield();
         }
     }
+
+    m_File.flush();
 }

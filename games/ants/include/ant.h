@@ -9,7 +9,8 @@ enum class AntState
     Wandering,
     FoundFood,
     ReturningToNest,
-    Patrol
+    Patrol,
+    Fleeing
 };
 
 class Ant : public GameObject
@@ -22,7 +23,8 @@ public:
     virtual size_t GetMemorySize() const override;
     virtual float GetX() const override { return m_X; }
     virtual float GetY() const override { return m_Y; }
-    virtual bool HasSpatialCollision() const override { return false; }
+    virtual bool HasSpatialCollision() const override { return true; }
+    CollisionLayer GetLayer() const override { return CollisionLayer::Layer1; }
 
 protected:
     float m_X, m_Y;
@@ -42,6 +44,8 @@ protected:
 
     float m_Energy;
     float m_MaxEnergy;
+
+    float m_PanicTimer = 0.0f;
 
     Color m_DefaultColor;
     AntState m_DefaultState;

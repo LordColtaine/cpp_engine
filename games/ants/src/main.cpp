@@ -2,9 +2,12 @@
 #include "core/world.h"
 #include "food.h"
 #include "logger/logger.h"
+#include "logger/profiler.h"
 #include "nest.h"
 #include "pheromonegrid.h"
+#include "predator.h"
 #include "raylib.h"
+
 #include <algorithm>
 #include <iostream>
 
@@ -57,6 +60,7 @@ enum class GameState
 int main()
 {
     Logger::Get().Init("log.txt");
+    Profiler::Get().BeginSession();
     LOG_INFO("Logger initialized successfully.");
 
     SetConfigFlags(FLAG_FULLSCREEN_MODE);
@@ -146,6 +150,7 @@ int main()
 
             if (antsSpawned >= TOTAL_ANTS_TO_SPAWN)
             {
+                world->NewGameObject<Predator>(worldCenterX, worldCenterY, &grid);
                 currentState = GameState::Playing;
                 previousTime = GetTime();
                 accumulator = 0.0;
@@ -239,25 +244,28 @@ int main()
                 accumulator -= FIXED_DT;
             }
 
-            // --- RENDERING ---
-            BeginDrawing();
-            ClearBackground(RAYWHITE);
-            BeginMode2D(camera);
+            {
+                PROFILE_SCOPE("Render Phase");
+                // --- RENDERING ---
+                BeginDrawing();
+                ClearBackground(RAYWHITE);
+                BeginMode2D(camera);
 
-            // --- DRAW THE STATIC WORLD BACKGROUND ---
-            // negative height flips the texture right-side up
-            Rectangle sourceRec = {0.0f, 0.0f, (float) backgroundTexture.texture.width,
-                                   (float) -backgroundTexture.texture.height};
-            Vector2 position = {0.0f, 0.0f};
-            DrawTextureRec(backgroundTexture.texture, sourceRec, position, WHITE);
+                // --- DRAW THE STATIC WORLD BACKGROUND ---
+                // negative height flips the texture right-side up
+                Rectangle sourceRec = {0.0f, 0.0f, (float) backgroundTexture.texture.width,
+                                       (float) -backgroundTexture.texture.height};
+                Vector2 position = {0.0f, 0.0f};
+                DrawTextureRec(backgroundTexture.texture, sourceRec, position, WHITE);
 
-            grid.DrawDebug();
-            world->Draw();
-            EndMode2D();
+                grid.DrawDebug();
+                world->Draw();
+                EndMode2D();
 
-            DrawFPS(10, 10);
+                DrawFPS(10, 10);
 
-            EndDrawing();
+                EndDrawing();
+            }
         }
     }
 
@@ -267,6 +275,7 @@ int main()
     CloseWindow();
     delete world;
 
+    Profiler::Get().EndSession();
     Logger::Get().Shutdown();
 
     return 0;

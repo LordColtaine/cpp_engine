@@ -23,13 +23,18 @@ public:
         }
     }
 
-    void Draw() const override { DrawCircle(static_cast<int>(m_X), static_cast<int>(m_Y), m_Radius, GREEN); }
+    void Draw() const override
+    {
+        DrawRectangle(static_cast<int>(m_X - m_Radius), static_cast<int>(m_Y - m_Radius),
+                      static_cast<int>(m_Radius * 2), static_cast<int>(m_Radius * 2), GREEN);
+    }
 
     size_t GetMemorySize() const override { return sizeof(*this); }
     float GetX() const override { return m_X; }
     float GetY() const override { return m_Y; }
     float GetRadius() const { return m_Radius; }
     size_t GetInstanceTypeID() const override { return GetTypeID<Food>(); }
+    CollisionLayer GetLayer() const override { return CollisionLayer::Layer2; }
 
     float Harvest(float requestedAmount)
     {

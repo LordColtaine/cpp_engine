@@ -7,6 +7,7 @@ struct PheromoneCell
     float m_HomeScent = 0.0f;
     float m_FoodScent = 0.0f;
     float m_RallyScent = 0.0f;
+    float m_FearScent = 0.0f;
     bool m_IsObstacle = false;
 };
 
@@ -35,11 +36,13 @@ public:
     void AddHomePheromone(float worldX, float worldY, float amount);
     void AddFoodPheromone(float worldX, float worldY, float amount);
     void AddRallyPheromone(float worldX, float worldY, float radius, float amount);
+    void AddFearRadius(float worldX, float worldY, float radius, float amount);
 
     // Scent reading functions
     float GetHomePheromone(float worldX, float worldY) const;
     float GetFoodPheromone(float worldX, float worldY) const;
     float GetRallyPheromone(float worldX, float worldY) const;
+    float GetFearPheromone(float worldX, float worldY) const;
 
     // Obstacle
     void SpawnObstacle(float x, float y, float radius);
