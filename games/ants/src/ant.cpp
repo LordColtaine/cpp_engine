@@ -4,6 +4,7 @@
 #include "core/world.h"
 #include "food.h"
 #include "logger/profiler.h"
+#include "predator.h"
 #include <cmath>
 #include <cstdlib>
 
@@ -216,6 +217,28 @@ void SoldierAnt::Update(double dt)
 
     if (UpdateEnergy(dt))
         return;
+
+    thread_local std::vector<Predator*> threats;
+    threats.clear();
+
+    GetWorld()->GetSpatialGrid()->GetNearbyType<Predator>(threats, m_X, m_Y, 10.0f, CollisionLayer::Layer0);
+
+    if (!threats.empty())
+    {
+        Predator* target = threats[0];
+        float dx = target->GetX() - m_X;
+        float dy = target->GetY() - m_Y;
+        float dist = std::sqrt(dx * dx + dy * dy);
+        m_Dx = dx / dist;
+        m_Dy = dy / dist;
+        m_Color = YELLOW;
+        MoveAndBounce(dt);
+        return;
+    }
+    else
+    {
+        m_Color = m_DefaultColor;
+    }
 
     if (m_CurrentState == AntState::Patrol && m_Energy < (m_MaxEnergy * HUNGER_THRESHOLD_PCT) && m_Color.r != RED.r)
     {

@@ -17,9 +17,11 @@ public:
         PROFILE_FUNCTION();
         BTAgent::Update(dt);
         m_Energy -= 2.0f * static_cast<float>(dt);
-        if (m_Energy < 0.0f)
+        if (m_Energy <= 0.0f)
         {
-            m_Energy = 0.0f;
+            LOG_INFO("The Predator has starved to death.");
+            MarkForKill();
+            return;
         }
         m_Grid->AddFearRadius(m_X, m_Y, 150.0f, 255.f * static_cast<float>(dt));
     }
