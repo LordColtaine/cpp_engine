@@ -1,70 +1,36 @@
 #!/bin/bash
 
-# Read the first argument passed to the script. If none is provided, default to "all".
-ACTION=${1:-"all"}
+# $1 is now GAME (default rts), $2 is now ACTION (default all)
+GAME=${1:-"rts"}
+ACTION=${2:-"all"}
 
 DO_BUILD=false
 DO_RUN=false
 
-# Parse the command line argument
 case "$ACTION" in
-    build)
-        DO_BUILD=true
-        ;;
-    run)
-        DO_RUN=true
-        ;;
-    all)
-        DO_BUILD=true
-        DO_RUN=true
-        ;;
-    *)
-        echo "Invalid option: $1"
-        echo "Usage: ./build.sh [build | run | all]"
-        echo "  build : Only compile the project"
-        echo "  run   : Only execute the game"
-        echo "  all   : Compile and execute (Default)"
-        exit 1
-        ;;
+    build) DO_BUILD=true ;;
+    run)   DO_RUN=true ;;
+    all)   DO_BUILD=true; DO_RUN=true ;;
 esac
 
-# Build Phase
 if [ "$DO_BUILD" = true ]; then
     mkdir -p build
     cd build
+    # Force the CACHE update so the switch always happens
+    cmake .. -DACTIVE_GAME=$GAME -DFETCHCONTENT_QUIET=OFF
+    make -j$(nproc)
     
-    cmake ..
-    make
-    
-    # If compilation fails, stop the script immediately
     if [ $? -ne 0 ]; then
-        echo "--------------------------"
-        echo "   COMPILATION FAILED     "
-        echo "--------------------------"
+        echo "COMPILATION FAILED"
         exit 1
-    else
-        echo "--------------------------"
-        echo "  COMPILATION SUCCEEDED   "
-        echo "--------------------------"
     fi
-    
-    # Go back to the root folder so the run phase has a consistent starting point
     cd .. 
 fi
 
-# Run Phase
 if [ "$DO_RUN" = true ]; then
-    # Safety check: make sure the executable actually exists before trying to run it
-    if [ ! -f "build/game_ants" ]; then
-        echo "--------------------------"
-        echo " ERROR: EXECUTABLE MISSING"
-        echo "--------------------------"
-        echo "Please run './build.sh build' first."
+    if [ ! -f "build/game" ]; then
+        echo "ERROR: EXECUTABLE MISSING"
         exit 1
     fi
-
-    echo "--------------------------"
-    echo "        APP OUTPUT        "
-    echo "--------------------------"
-    cd build && ./game_ants
+    cd build && ./game
 fi
