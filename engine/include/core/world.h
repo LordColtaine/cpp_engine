@@ -15,7 +15,7 @@ public:
     World(const World&) = delete;
     World& operator=(const World&) = delete;
 
-    void Init();
+    void Init(float width, float height, float cellSize);
 
     template <typename T, typename... Args> T* NewGameObject(Args&&... args)
     {

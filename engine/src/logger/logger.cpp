@@ -7,7 +7,7 @@ void Logger::Init(const std::string& filepath)
     if (m_IsRunning.load(std::memory_order_relaxed))
         return;
 
-    m_File.open(filepath, std::ios::out | std::ios::app);
+    m_File.open(filepath, std::ios::out | std::ios::trunc);
     if (!m_File.is_open())
     {
         std::cerr << "Failed to open log file: " << filepath << "\n";
@@ -76,6 +76,7 @@ void Logger::ProcessQueue()
         if (m_RingBuffer[index].isReady.load(std::memory_order_acquire))
         {
             m_File << m_RingBuffer[index].message;
+            std::cout << m_RingBuffer[index].message;
 
             m_RingBuffer[index].isReady.store(false, std::memory_order_relaxed);
             m_ReadIndex.fetch_add(1, std::memory_order_relaxed);

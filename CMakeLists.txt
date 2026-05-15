@@ -5,10 +5,9 @@ set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# --- RAYLIB ---
-# Using FetchContent to pull raylib directly from GitHub.
-# GIT_SHALLOW and GIT_PROGRESS help manage the download size and visibility.
 include(FetchContent)
+
+# --- RAYLIB ---
 FetchContent_Declare(
     raylib
     GIT_REPOSITORY https://github.com/raysan5/raylib.git
@@ -19,7 +18,17 @@ FetchContent_Declare(
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(raylib)
 
-# --- 1. ENGINE (100% Reusable) ---
+# --- ENET (Reliable UDP Networking) ---
+FetchContent_Declare(
+    enet
+    GIT_REPOSITORY https://github.com/lsalzman/enet.git
+    GIT_TAG master 
+    GIT_SHALLOW    TRUE
+    GIT_PROGRESS   TRUE
+)
+FetchContent_MakeAvailable(enet)
+
+# --- ENGINE (100% Reusable) ---
 set(ENGINE_SOURCES
     engine/src/memory/memorypool.cpp
     engine/src/memory/binnedallocator.cpp
@@ -28,6 +37,8 @@ set(ENGINE_SOURCES
     engine/src/core/spatialgrid.cpp
     engine/src/logger/logger.cpp
     engine/src/behaviour/behaviourtree.cpp
+    engine/src/network/client.cpp
+    engine/src/network/server.cpp
     
     engine/include/memory/memorypool.h
     engine/include/memory/binnedallocator.h
@@ -40,13 +51,17 @@ set(ENGINE_SOURCES
     engine/include/logger/profiler.h
     engine/include/behaviour/behaviourtree.h
     engine/include/behaviour/btagent.h
+    engine/include/network/client.h
+    engine/include/network/server.h
 )
 
 add_library(core_engine STATIC ${ENGINE_SOURCES})
-target_include_directories(core_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/engine/include)
+target_include_directories(core_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/engine/include ${enet_SOURCE_DIR}/include)
 
-# --- 2. GAME SELECTION ---
-# We use CACHE STRING so the build script can override this via -DACTIVE_GAME=
+# Link ENet to the engine so all games inherit the networking capability
+target_link_libraries(core_engine PUBLIC enet)
+
+# --- GAME SELECTION ---
 set(ACTIVE_GAME "rts" CACHE STRING "The game project to build")
 
 if(ACTIVE_GAME STREQUAL "ants")
@@ -71,21 +86,34 @@ if(ACTIVE_GAME STREQUAL "ants")
     
 elseif(ACTIVE_GAME STREQUAL "rts")
     set(GAME_SOURCES
-        games/rts/src/main.cpp
+        games/rts/include/unit.h
+        games/rts/include/unitmanager.h
+        
+	games/rts/src/main.cpp
+        games/rts/src/unit.cpp
+        games/rts/src/unitmanager.cpp
     )
     
     add_executable(game ${GAME_SOURCES})
     target_include_directories(game PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/games/rts/include)
     target_link_libraries(game PRIVATE core_engine raylib)
+    
+    # ---  RTS STANDALONE SERVER ---
+set(SERVER_SOURCES
+    games/rts/server/main.cpp
+)
+add_executable(server ${SERVER_SOURCES})
+target_include_directories(server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/games/rts/include)
+target_link_libraries(server PRIVATE core_engine)
 endif()
 
 # --- CLANG FORMAT ---
-# This target automatically formats your code based on the .clang-format file.
 find_program(CLANG_FORMAT_EXE clang-format)
 if(CLANG_FORMAT_EXE)
     add_custom_target(
         FormatCode
-        COMMAND ${CLANG_FORMAT_EXE} -i -style=file ${ENGINE_SOURCES} ${GAME_SOURCES}
+        # --- UPDATED: Added ${SERVER_SOURCES} to the list ---
+        COMMAND ${CLANG_FORMAT_EXE} -i -style=file ${ENGINE_SOURCES} ${GAME_SOURCES} ${SERVER_SOURCES}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running clang-format on all source files..."
     )

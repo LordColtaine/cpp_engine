@@ -20,9 +20,9 @@ World::~World()
     delete m_SpatialGrid;
 }
 
-void World::Init()
+void World::Init(float width, float height, float cellSize)
 {
-    m_SpatialGrid = new SpatialGrid(5000.0f, 5000.0f, 50.0f);
+    m_SpatialGrid = new SpatialGrid(width, height, cellSize);
     m_MemoryManager.Init();
     m_Objects.reserve(200000);
 }
