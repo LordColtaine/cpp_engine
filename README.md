@@ -32,5 +32,5 @@ cmake .. -DACTIVE_GAME="rts"
 make -j$(nproc)
 
 ```
-##Formatting
+## Formatting
 The project includes a custom FormatCode target. Running make FormatCode will automatically format all engine and game source files using clang-format based on the .clang-format style configuration.
